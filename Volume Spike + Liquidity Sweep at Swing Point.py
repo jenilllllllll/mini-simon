@@ -72,7 +72,7 @@ for tf in timeframes:
     os.makedirs(tf_path, exist_ok=True)
 
     for symbol in nifty_50_stocks:
-        file_path = os.path.join(tf_path, f"{symbol}.csv")
+        file_path = os.path.join(tf_path, f"{symbol}_{tf}-min.csv")
 
         # 🧾 If Day file is missing, re-fetch it
         if tf == 'day' and not os.path.exists(file_path):

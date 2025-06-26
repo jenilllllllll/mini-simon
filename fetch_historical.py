@@ -144,6 +144,6 @@ for tf in timeframes:
         folder = os.path.join(base_path, tf)
         os.makedirs(folder, exist_ok=True)
         label = "daily" if tf == "day" else f"{tf}-min"
-        filepath = os.path.join(folder, f"{name}_{label}_.csv")
+        filepath = os.path.join(folder, f"{name}_{label}.csv")
         df.to_csv(filepath, index=False)
         print(f"✅ Saved: {filepath}")

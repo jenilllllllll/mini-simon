@@ -108,7 +108,7 @@ def apply_strategy(df):
 for tf in timeframes:
     for stock in nifty_50_stocks:
         try:
-            input_file = os.path.join(input_base_path, tf, f"{stock}.csv")
+            input_file = os.path.join(input_base_path, tf, f"{stock}_{tf}-min.csv")
             if not os.path.exists(input_file):
                 print(f"⛔ Missing: {input_file}")
                 continue
