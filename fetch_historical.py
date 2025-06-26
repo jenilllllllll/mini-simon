@@ -24,12 +24,13 @@ nifty_50_stocks = [
    "NSE:APOLLOHOSP-EQ", "NSE:ICICIPRULI-EQ", "NSE:TATASTEEL-EQ", "NSE:M&M-EQ", "NSE:BHARTIARTL-EQ"
 ]
 
-timeframes = ["5", "15", "60", "240", "day"]
+timeframes = ["day"]
 import os
 base_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data")
 
 # === Fetch OHLCV ===
 def fetch_ohlcv(symbol, timeframe):
+    resolution = "D" if timeframe == "day" else timeframe
     all_data = []
     today = datetime.utcnow()
     
@@ -42,7 +43,7 @@ def fetch_ohlcv(symbol, timeframe):
         end_date = min(start_date + delta, today)
         payload = {
             "symbol": symbol,
-            "resolution": timeframe,
+            "resolution": resolution,
             "date_format": "1",
             "range_from": start_date.strftime("%Y-%m-%d"),
             "range_to": end_date.strftime("%Y-%m-%d"),
