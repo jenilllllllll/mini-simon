@@ -591,6 +591,109 @@ def get_trades_with_pnl_snapshot() -> List[Dict[str, Any]]:
     return enriched
 
 
+def get_engine_trades_snapshot() -> List[Dict[str, Any]]:
+    """Build a pseudo-trade view from LiveEngine aggregated signals.
+
+    This does NOT place real orders. It reads recent aggregated signals from
+    EngineManager/SignalStore and marks them to market using the current
+    WebSocket LTP from the dashboard's price buffer.
+    """
+
+    manager = get_engine_manager()
+    if manager is None:
+        return []
+
+    try:
+        signals: List[Dict[str, Any]] = manager.get_signals(limit=500) or []
+    except Exception as e:  # pragma: no cover - defensive
+        print("Engine signals error:", e)
+        return []
+
+    if not signals:
+        return []
+
+    prices = get_price_snapshot()
+    engine_trades: List[Dict[str, Any]] = []
+
+    for s in signals:
+        symbol_key = str(s.get("symbol") or "")
+        if not symbol_key:
+            continue
+
+        fy_symbol = NIFTY_50_SYMBOLS.get(symbol_key, symbol_key)
+        price_info = prices.get(fy_symbol)
+        ltp = None
+        if price_info is not None:
+            ltp_val = price_info.get("ltp")
+            if ltp_val is not None:
+                try:
+                    ltp = float(ltp_val)
+                except Exception:
+                    ltp = None
+
+        final_action = s.get("final_action") or s.get("action")
+        if final_action not in ("BUY", "SELL"):
+            continue
+
+        try:
+            entry_price = float(s.get("entry_price") or 0.0)
+            stop_loss = float(s.get("stop_loss_level") or 0.0)
+            target = float(s.get("target_level") or 0.0)
+        except Exception:
+            continue
+
+        ts_str = s.get("timestamp_generated") or s.get("signal_timestamp")
+        try:
+            entry_time = pd.to_datetime(ts_str) if ts_str else datetime.utcnow()
+        except Exception:
+            entry_time = datetime.utcnow()
+
+        trade: Dict[str, Any] = {
+            "symbol": fy_symbol,
+            "direction": final_action,
+            "qty": 1,
+            "entry_price": entry_price,
+            "entry_time": entry_time,
+            "exit_price": None,
+            "exit_time": None,
+            "status": "OPEN",
+            "timeframe": s.get("signal_timeframe"),
+            "strategy": ",".join(s.get("contributing_strategies", [])),
+            "reason": "LiveEngine aggregated signal",
+            "pnl": 0.0,
+        }
+
+        if ltp is not None and ltp > 0 and entry_price > 0:
+            if final_action == "BUY":
+                pnl_points = ltp - entry_price
+            else:
+                pnl_points = entry_price - ltp
+            pnl_value = pnl_points
+
+            trade["points"] = pnl_points
+            trade["pnl"] = pnl_value
+
+            # Simple virtual close when SL or Target is breached
+            if stop_loss > 0 and target > 0:
+                now = datetime.utcnow()
+                if (final_action == "BUY" and ltp >= target) or (
+                    final_action == "SELL" and ltp <= target
+                ):
+                    trade["status"] = "CLOSED"
+                    trade["exit_price"] = ltp
+                    trade["exit_time"] = now
+                elif (final_action == "BUY" and ltp <= stop_loss) or (
+                    final_action == "SELL" and ltp >= stop_loss
+                ):
+                    trade["status"] = "CLOSED"
+                    trade["exit_price"] = ltp
+                    trade["exit_time"] = now
+
+        engine_trades.append(trade)
+
+    return engine_trades
+
+
 def compute_pnl_matrix(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
     total_trades = len(trades)
     closed = [t for t in trades if t.get("status") == "CLOSED"]
@@ -802,20 +905,49 @@ def render_live_tab() -> None:
 
 
 def render_trades_tab() -> None:
-    st.subheader("Paper Trade Log & P&L")
+    st.subheader("Paper Trade Log & P&L (Demo Momentum) vs Engine P&L")
 
+    # Demo paper-trade engine metrics
     trades = get_trades_with_pnl_snapshot()
     matrix = compute_pnl_matrix(trades)
 
+    # Engine-based pseudo trades from LiveEngine signals
+    engine_trades = get_engine_trades_snapshot()
+    engine_matrix = compute_pnl_matrix(engine_trades) if engine_trades else {
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
+        "win_rate": 0.0,
+        "total_pnl": 0.0,
+        "max_drawdown": 0.0,
+    }
+
     col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Total Trades", matrix["total_trades"])
-    col2.metric("Win Rate %", f"{matrix['win_rate']:.2f}")
-    col3.metric("Total P&L (INR)", f"{matrix['total_pnl']:.2f}")
-    col4.metric("Winning / Losing", f"{matrix['wins']} / {matrix['losses']}")
-    col5.metric("Max Drawdown", f"{matrix['max_drawdown']:.2f}")
+    with col1:
+        st.metric("Demo Trades", matrix["total_trades"])
+    with col2:
+        st.metric("Demo Win Rate %", f"{matrix['win_rate']:.2f}")
+    with col3:
+        st.metric("Demo Total P&L", f"{matrix['total_pnl']:.2f}")
+    with col4:
+        st.metric("Demo W / L", f"{matrix['wins']} / {matrix['losses']}")
+    with col5:
+        st.metric("Demo Max DD", f"{matrix['max_drawdown']:.2f}")
+
+    e1, e2, e3, e4, e5 = st.columns(5)
+    with e1:
+        st.metric("Engine Trades", engine_matrix["total_trades"])
+    with e2:
+        st.metric("Engine Win Rate %", f"{engine_matrix['win_rate']:.2f}")
+    with e3:
+        st.metric("Engine Total P&L", f"{engine_matrix['total_pnl']:.2f}")
+    with e4:
+        st.metric("Engine W / L", f"{engine_matrix['wins']} / {engine_matrix['losses']}")
+    with e5:
+        st.metric("Engine Max DD", f"{engine_matrix['max_drawdown']:.2f}")
 
     st.markdown("---")
-    st.subheader("Trade Log")
+    st.subheader("Demo Trade Log (Momentum)")
 
     if trades:
         df = pd.DataFrame(trades)
@@ -824,17 +956,50 @@ def render_trades_tab() -> None:
                 df[col] = df[col].astype(str)
 
         df = df.sort_values(by="entry_time", ascending=False)
-        st.dataframe(df, use_container_width=True, height=400)
+        st.dataframe(df, use_container_width=True, height=300)
 
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="Download CSV",
+            label="Download Demo CSV",
             data=csv,
-            file_name="paper_trades.csv",
+            file_name="paper_trades_demo.csv",
             mime="text/csv",
         )
     else:
-        st.info("No trades yet. Strategy is monitoring live prices.")
+        st.info("No demo trades yet. Momentum strategy is monitoring live prices.")
+
+    st.markdown("---")
+    st.subheader("Engine Signals Log (Production Strategies)")
+
+    manager = get_engine_manager()
+    if manager is None:
+        st.warning("Engine is not running. Check FYERS credentials / access token.")
+        return
+
+    try:
+        engine_signals: List[Dict[str, Any]] = manager.get_signals(limit=200) or []
+    except Exception as e:
+        st.error(f"Error fetching engine signals: {e}")
+        return
+
+    if not engine_signals:
+        st.info("No engine signals have been generated yet.")
+        return
+
+    df_engine = pd.DataFrame(engine_signals)
+    for col in ["signal_timestamp", "timestamp_generated"]:
+        if col in df_engine.columns:
+            df_engine[col] = df_engine[col].astype(str)
+
+    st.dataframe(df_engine, use_container_width=True, height=300)
+
+    csv_engine = df_engine.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="Download Engine Signals CSV",
+        data=csv_engine,
+        file_name="engine_signals_log.csv",
+        mime="text/csv",
+    )
 
 
 def render_backtest_tab() -> None:
