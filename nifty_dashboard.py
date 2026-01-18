@@ -13,6 +13,7 @@ from fyers_apiv3.FyersWebsocket import data_ws
 from fyers_apiv3 import fyersModel
 
 from config import get_config
+from live_engine import EngineManager
 
 
 NIFTY_50_SYMBOLS: Dict[str, str] = {
@@ -93,6 +94,10 @@ paper_engine_lock = threading.Lock()
 _paper_engine: Optional["PaperTradingEngine"] = None
 
 
+engine_manager_lock = threading.Lock()
+_engine_manager: Optional[EngineManager] = None
+
+
 st.set_page_config(page_title="Nifty-50 Trading Dashboard", layout="wide")
 
 
@@ -132,6 +137,58 @@ def get_fyers_rest() -> fyersModel.FyersModel:
                 log_path="",
             )
     return _fyers_rest_client
+
+
+@st.cache_resource
+def _init_engine_manager() -> Optional[EngineManager]:
+    """Initialize and start the LiveEngine via EngineManager.
+
+    Uses the same FYERS credentials and symbol list as the dashboard config,
+    so the engine runs the real strategies (vol spike, body imbalance, etc.)
+    on live data.
+    """
+
+    try:
+        app_id, token = get_fyers_auth()
+    except Exception as e:  # pragma: no cover - defensive
+        print("EngineManager init error while reading FYERS auth:", e)
+        return None
+
+    try:
+        manager = EngineManager()
+
+        # Patch the data_feed section of the EngineManager config
+        cfg = get_config()
+        data_cfg = manager.config.get("data_feed", {})
+        data_cfg["app_id"] = app_id
+        data_cfg["access_token"] = token
+
+        symbols = cfg.get("data_feed.symbols")
+        if symbols:
+            data_cfg["symbols"] = symbols
+
+        timeframes = cfg.get("data_feed.timeframes")
+        if timeframes:
+            data_cfg["timeframes"] = timeframes
+
+        manager.config["data_feed"] = data_cfg
+
+        started = manager.start_engine()
+        if not started:
+            print("Failed to start LiveEngine from dashboard")
+            return None
+
+        return manager
+
+    except Exception as e:  # pragma: no cover - defensive
+        print("EngineManager init error:", e)
+        return None
+
+
+def get_engine_manager() -> Optional[EngineManager]:
+    """Return cached EngineManager instance (or None if startup failed)."""
+
+    return _init_engine_manager()
 
 
 def _update_price_and_candle(symbol: str, ltp: float, volume: float, ts: Optional[datetime] = None) -> None:
@@ -867,11 +924,57 @@ def render_backtest_tab() -> None:
 
 
 def render_signals_tab() -> None:
-    st.subheader("Live Manual Signals")
+    st.subheader("Live Engine Signals (Production Strategies)")
+
+    manager = get_engine_manager()
+    if manager is None:
+        st.warning("Engine is not running. Check FYERS credentials / access token.")
+    else:
+        status: Dict[str, Any] = {}
+        try:
+            status = manager.get_status() or {}
+        except Exception as e:
+            st.error(f"Error fetching engine status: {e}")
+
+        stats = status.get("statistics", {}) if isinstance(status, dict) else {}
+        cols = st.columns(3)
+        with cols[0]:
+            st.metric("Engine Running", "Yes" if status.get("is_running") else "No")
+        with cols[1]:
+            st.metric("Signals Generated", stats.get("signals_generated", 0))
+        with cols[2]:
+            st.metric("Errors", stats.get("errors", 0))
+
+        engine_signals: List[Dict[str, Any]] = []
+        try:
+            engine_signals = manager.get_signals(limit=50) or []
+        except Exception as e:
+            st.error(f"Error fetching engine signals: {e}")
+
+        if engine_signals:
+            df_engine = pd.DataFrame(engine_signals)
+            for col in ["signal_timestamp", "timestamp_generated"]:
+                if col in df_engine.columns:
+                    df_engine[col] = df_engine[col].astype(str)
+
+            st.dataframe(df_engine, use_container_width=True, height=350)
+
+            csv_engine = df_engine.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="Download Engine Signals CSV",
+                data=csv_engine,
+                file_name="engine_signals.csv",
+                mime="text/csv",
+            )
+        else:
+            st.info("Engine is running but no signals have been generated yet.")
+
+    st.markdown("---")
+    st.subheader("Paper Strategy Signals (Momentum Demo)")
 
     signals = get_active_signals_snapshot()
     if not signals:
-        st.info("No active signals. Signals are generated from the live paper-trading strategy.")
+        st.info("No active paper-strategy signals at the moment.")
         return
 
     df = pd.DataFrame(signals)
@@ -879,7 +982,7 @@ def render_signals_tab() -> None:
         if col in df.columns:
             df[col] = df[col].astype(str)
 
-    st.dataframe(df, use_container_width=True, height=400)
+    st.dataframe(df, use_container_width=True, height=300)
 
 
 def main() -> None:
@@ -887,6 +990,8 @@ def main() -> None:
 
     get_ws_manager()
     get_paper_engine()
+    # Start LiveEngine (production strategies) in background
+    get_engine_manager()
 
     status_cols = st.columns(3)
     with status_cols[0]:
