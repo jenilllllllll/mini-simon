@@ -119,7 +119,7 @@ def _apply_dark_theme() -> None:
         """
         <style>
         .stApp {
-            background-color: #0b0b0f;
+            background: radial-gradient(circle at top left, #1f2933 0%, #05070a 55%, #020308 100%);
             color: #e5e5e5;
         }
 
@@ -129,12 +129,34 @@ def _apply_dark_theme() -> None:
             max-width: 100% !important;
         }
 
+        /* Center top-level tabs */
+        div[data-baseweb="tab-list"] {
+            justify-content: center !important;
+        }
+
         .card {
             background-color: #14141c;
             border: 1px solid #333;
             border-radius: 0.6rem;
             padding: 0.6rem 0.8rem;
             box-shadow: 0 0 12px rgba(0, 0, 0, 0.6);
+        }
+
+        .exec-card .stButton>button {
+            border-radius: 4px;
+            font-weight: 600;
+            border: none;
+            padding: 0.4rem 0.6rem;
+        }
+
+        .exec-card div.stButton:nth-of-type(1) button {
+            background-color: #22c55e;
+            color: #0b0b0f;
+        }
+
+        .exec-card div.stButton:nth-of-type(2) button {
+            background-color: #f97373;
+            color: #0b0b0f;
         }
 
         .kpi-label {
@@ -847,7 +869,7 @@ def render_live_tab() -> None:
 
             st.markdown("</div>", unsafe_allow_html=True)
 
-    # Right: Live Signals + Execution/Position summary
+    # Right: Live Signals + Execution panel + Position summary
     with col_right:
         # Live signals card
         with st.container():
@@ -900,10 +922,76 @@ def render_live_tab() -> None:
 
             st.markdown("</div>", unsafe_allow_html=True)
 
-        # Execution / Position summary card
+        # Execution panel card
+        with st.container():
+            st.markdown('<div class="card exec-card">', unsafe_allow_html=True)
+            st.markdown("#### Execution Panel")
+            st.caption("Simulated paper orders (no live execution).")
+
+            prices = get_price_snapshot()
+            latest = prices.get(symbol_code)
+            ltp = float(latest["ltp"]) if latest and latest.get("ltp") is not None else None
+
+            qty_default = int(st.session_state.get("exec_qty", 1) or 1)
+            qty = st.number_input(
+                "Quantity",
+                min_value=1,
+                max_value=100000,
+                value=qty_default,
+                step=1,
+                key="exec_qty",
+            )
+
+            col_buy, col_sell = st.columns(2)
+            with col_buy:
+                if st.button("BUY", use_container_width=True, key="exec_buy"):
+                    if ltp is not None:
+                        _open_paper_trade(
+                            symbol_code=symbol_code,
+                            display_symbol=selected_symbol,
+                            direction="BUY",
+                            price=ltp,
+                            when=datetime.utcnow(),
+                            timeframe="1m",
+                            strategy="Manual",
+                            reason="Manual BUY",
+                        )
+            with col_sell:
+                if st.button("SELL", use_container_width=True, key="exec_sell"):
+                    if ltp is not None:
+                        _open_paper_trade(
+                            symbol_code=symbol_code,
+                            display_symbol=selected_symbol,
+                            direction="SELL",
+                            price=ltp,
+                            when=datetime.utcnow(),
+                            timeframe="1m",
+                            strategy="Manual",
+                            reason="Manual SELL",
+                        )
+
+            # Optional quick export of the full paper trade log
+            trades_all = st.session_state.get("paper_trades", [])
+            if trades_all:
+                df_all = pd.DataFrame(trades_all)
+                for col in ["entry_time", "exit_time"]:
+                    if col in df_all.columns:
+                        df_all[col] = df_all[col].astype(str)
+                csv_all = df_all.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="SAVE CSV",
+                    data=csv_all,
+                    file_name="trade_log.csv",
+                    mime="text/csv",
+                    key="exec_save_csv",
+                )
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # Current positions card
         with st.container():
             st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.markdown("#### Execution / Positions")
+            st.markdown("#### Current Positions")
 
             prices = get_price_snapshot()
             ltp = None
