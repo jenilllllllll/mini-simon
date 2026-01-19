@@ -81,24 +81,89 @@ trade_log: List[Dict[str, Any]] = []
 positions_lock = threading.Lock()
 open_positions: Dict[str, Dict[str, Any]] = {}
 
-active_signals_lock = threading.Lock()
-active_signals: List[Dict[str, Any]] = []
-
 fyers_rest_client_lock = threading.Lock()
 _fyers_rest_client: Optional[fyersModel.FyersModel] = None
 
 ws_manager_lock = threading.Lock()
 _ws_manager: Optional["WebSocketManager"] = None
 
-paper_engine_lock = threading.Lock()
-_paper_engine: Optional["PaperTradingEngine"] = None
-
 
 engine_manager_lock = threading.Lock()
 _engine_manager: Optional[EngineManager] = None
 
 
-st.set_page_config(page_title="Nifty-50 Trading Dashboard", layout="wide")
+st.set_page_config(page_title="Nifty-50 Algorithmic Trading Terminal", layout="wide")
+
+
+def _init_session_state() -> None:
+    """Initialize session_state keys for symbol selection and paper trading."""
+
+    if "selected_symbol" not in st.session_state:
+        st.session_state["selected_symbol"] = sorted(NIFTY_50_SYMBOLS.keys())[0]
+
+    if "paper_trades" not in st.session_state:
+        st.session_state["paper_trades"] = []
+
+    if "paper_positions" not in st.session_state:
+        st.session_state["paper_positions"] = {}
+
+    if "paper_last_candle" not in st.session_state:
+        # Maps symbol_code -> last processed candle timestamp
+        st.session_state["paper_last_candle"] = {}
+
+
+def _apply_dark_theme() -> None:
+    """Inject a dark, high-density theme and card styling via CSS."""
+
+    st.markdown(
+        """
+        <style>
+        .stApp {
+            background-color: #0b0b0f;
+            color: #e5e5e5;
+        }
+
+        .block-container {
+            padding-top: 0.6rem;
+            padding-bottom: 0.6rem;
+            max-width: 100% !important;
+        }
+
+        .card {
+            background-color: #14141c;
+            border: 1px solid #333;
+            border-radius: 0.6rem;
+            padding: 0.6rem 0.8rem;
+            box-shadow: 0 0 12px rgba(0, 0, 0, 0.6);
+        }
+
+        .kpi-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            opacity: 0.75;
+        }
+
+        .kpi-value {
+            font-size: 1.4rem;
+            font-weight: 600;
+        }
+
+        .kpi-green {
+            color: #22c55e;
+        }
+
+        .kpi-red {
+            color: #f97373;
+        }
+
+        .kpi-neutral {
+            color: #e5e5e5;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def get_fyers_auth() -> Tuple[str, str]:
@@ -255,54 +320,6 @@ def get_candles_snapshot(symbol: str, limit: int = 200) -> pd.DataFrame:
     return df[["date", "open", "high", "low", "close", "volume"]]
 
 
-def create_signal_from_trade(trade: Dict[str, Any], now: datetime) -> None:
-    """Create a manual execution signal (Entry/SL/Target) from a new trade."""
-
-    entry = float(trade["entry_price"])
-    direction = trade["direction"]
-
-    if direction == "BUY":
-        stop_loss = entry * (1.0 - 0.5 / 100.0)
-        target = entry * (1.0 + 1.0 / 100.0)
-    else:
-        stop_loss = entry * (1.0 + 0.5 / 100.0)
-        target = entry * (1.0 - 1.0 / 100.0)
-
-    signal = {
-        "symbol": trade["symbol"],
-        "direction": direction,
-        "entry": entry,
-        "stop_loss": stop_loss,
-        "target": target,
-        "time": now,
-        "timeframe": trade.get("timeframe"),
-        "strategy": trade.get("strategy"),
-        "reason": trade.get("reason"),
-        "expires_at": now + timedelta(minutes=10),
-    }
-
-    with active_signals_lock:
-        active_signals.append(signal)
-
-
-def get_active_signals_snapshot() -> List[Dict[str, Any]]:
-    """Return only non-expired active signals (for manual phone execution)."""
-
-    now = datetime.utcnow()
-    with active_signals_lock:
-        remaining: List[Dict[str, Any]] = []
-        for s in active_signals:
-            exp = s.get("expires_at")
-            if isinstance(exp, datetime) and exp < now:
-                continue
-            remaining.append(dict(s))
-
-        active_signals.clear()
-        active_signals.extend(remaining)
-
-        return [dict(s) for s in remaining]
-
-
 class WebSocketManager:
     """Wrapper around FyersDataSocket (data_ws) using SymbolUpdate mode.
 
@@ -396,157 +413,19 @@ def get_ws_manager() -> WebSocketManager:
     return _ws_manager
 
 
-class PaperTradingEngine:
-    """Real-time paper trading engine scanning the Price Buffer every second."""
-
-    def __init__(self, scan_interval: float = 1.0):
-        self.scan_interval = scan_interval
-        self._thread: Optional[threading.Thread] = None
-        self._running = False
-        self._last_price: Dict[str, float] = {}
-        self._last_signal_time: Dict[str, datetime] = {}
-        self._cooldown = timedelta(minutes=5)
-        self._stop_loss_pct = 0.005
-        self._target_pct = 0.01
-        self._min_move_pct = 0.002
-
-    def start(self) -> None:
-        if self._thread and self._thread.is_alive():
-            return
-        self._running = True
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def _run(self) -> None:
-        while self._running:
-            try:
-                self.scan()
-            except Exception as e:
-                print("PaperTradingEngine error:", e)
-            time.sleep(self.scan_interval)
-
-    def scan(self) -> None:
-        prices = get_price_snapshot()
-        now = datetime.utcnow()
-
-        for symbol, data in prices.items():
-            ltp_val = data.get("ltp")
-            if ltp_val is None:
-                continue
-            ltp = float(ltp_val)
-            if ltp <= 0:
-                continue
-
-            prev = self._last_price.get(symbol)
-            self._last_price[symbol] = ltp
-            if prev is None:
-                continue
-
-            move_pct = (ltp - prev) / prev
-
-            self._manage_open_position(symbol, ltp, now)
-
-            last_sig_time = self._last_signal_time.get(symbol)
-            if last_sig_time and now - last_sig_time < self._cooldown:
-                continue
-
-            if abs(move_pct) < self._min_move_pct:
-                continue
-
-            direction = "BUY" if move_pct > 0 else "SELL"
-            reason = f"Price moved {move_pct * 100:.2f}% on last tick"
-
-            with positions_lock:
-                if symbol in open_positions:
-                    continue
-
-            self._open_trade(symbol, direction, ltp, now, reason)
-            self._last_signal_time[symbol] = now
-
-    def _open_trade(self, symbol: str, direction: str, price: float, now: datetime, reason: str) -> None:
-        trade = {
-            "symbol": symbol,
-            "direction": direction,
-            "qty": 1,
-            "entry_price": price,
-            "entry_time": now,
-            "exit_price": None,
-            "exit_time": None,
-            "status": "OPEN",
-            "timeframe": "1m",
-            "strategy": "Momentum_0.2pct",
-            "reason": reason,
-            "pnl": 0.0,
-        }
-
-        with trade_log_lock:
-            trade_log.append(trade)
-
-        with positions_lock:
-            open_positions[symbol] = trade
-
-        create_signal_from_trade(trade, now)
-
-    def _manage_open_position(self, symbol: str, ltp: float, now: datetime) -> None:
-        with positions_lock:
-            pos = open_positions.get(symbol)
-        if not pos:
-            return
-
-        entry = float(pos["entry_price"])
-        direction = pos["direction"]
-        move_pct = (ltp - entry) / entry
-        if direction == "SELL":
-            move_pct = -move_pct
-
-        if move_pct <= -self._stop_loss_pct or move_pct >= self._target_pct:
-            self._close_trade(symbol, ltp, now)
-
-    def _close_trade(self, symbol: str, ltp: float, now: datetime) -> None:
-        with positions_lock:
-            pos = open_positions.get(symbol)
-        if not pos:
-            return
-
-        direction = pos["direction"]
-        qty = int(pos["qty"])
-        entry_price = float(pos["entry_price"])
-
-        if direction == "BUY":
-            pnl_points = ltp - entry_price
-        else:
-            pnl_points = entry_price - ltp
-
-        pnl_value = pnl_points * qty
-
-        with trade_log_lock:
-            pos["status"] = "CLOSED"
-            pos["exit_price"] = ltp
-            pos["exit_time"] = now
-            pos["pnl"] = pnl_value
-
-        with positions_lock:
-            open_positions.pop(symbol, None)
-
-
-def get_paper_engine() -> PaperTradingEngine:
-    global _paper_engine
-    with paper_engine_lock:
-        if _paper_engine is None:
-            _paper_engine = PaperTradingEngine()
-            _paper_engine.start()
-    return _paper_engine
-
-
 def get_open_positions_snapshot() -> Dict[str, Dict[str, Any]]:
-    with positions_lock:
-        return {k: dict(v) for k, v in open_positions.items()}
+    """Return current paper positions snapshot from session_state."""
+
+    positions = st.session_state.get("paper_positions", {})
+    return {k: dict(v) for k, v in positions.items()}
 
 
 def get_trades_with_pnl_snapshot() -> List[Dict[str, Any]]:
+    """Return paper trades with realized / unrealized P&L, using session_state log."""
+
     prices = get_price_snapshot()
-    with trade_log_lock:
-        trades_copy = [dict(t) for t in trade_log]
+    trades_base: List[Dict[str, Any]] = st.session_state.get("paper_trades", [])
+    trades_copy = [dict(t) for t in trades_base]
 
     enriched: List[Dict[str, Any]] = []
     for t in trades_copy:
@@ -588,110 +467,9 @@ def get_trades_with_pnl_snapshot() -> List[Dict[str, Any]]:
         result["unrealized_pnl"] = unrealized
         enriched.append(result)
 
+    # Persist derived fields back into session_state for consistency
+    st.session_state["paper_trades"] = enriched
     return enriched
-
-
-def get_engine_trades_snapshot() -> List[Dict[str, Any]]:
-    """Build a pseudo-trade view from LiveEngine aggregated signals.
-
-    This does NOT place real orders. It reads recent aggregated signals from
-    EngineManager/SignalStore and marks them to market using the current
-    WebSocket LTP from the dashboard's price buffer.
-    """
-
-    manager = get_engine_manager()
-    if manager is None:
-        return []
-
-    try:
-        signals: List[Dict[str, Any]] = manager.get_signals(limit=500) or []
-    except Exception as e:  # pragma: no cover - defensive
-        print("Engine signals error:", e)
-        return []
-
-    if not signals:
-        return []
-
-    prices = get_price_snapshot()
-    engine_trades: List[Dict[str, Any]] = []
-
-    for s in signals:
-        symbol_key = str(s.get("symbol") or "")
-        if not symbol_key:
-            continue
-
-        fy_symbol = NIFTY_50_SYMBOLS.get(symbol_key, symbol_key)
-        price_info = prices.get(fy_symbol)
-        ltp = None
-        if price_info is not None:
-            ltp_val = price_info.get("ltp")
-            if ltp_val is not None:
-                try:
-                    ltp = float(ltp_val)
-                except Exception:
-                    ltp = None
-
-        final_action = s.get("final_action") or s.get("action")
-        if final_action not in ("BUY", "SELL"):
-            continue
-
-        try:
-            entry_price = float(s.get("entry_price") or 0.0)
-            stop_loss = float(s.get("stop_loss_level") or 0.0)
-            target = float(s.get("target_level") or 0.0)
-        except Exception:
-            continue
-
-        ts_str = s.get("timestamp_generated") or s.get("signal_timestamp")
-        try:
-            entry_time = pd.to_datetime(ts_str) if ts_str else datetime.utcnow()
-        except Exception:
-            entry_time = datetime.utcnow()
-
-        trade: Dict[str, Any] = {
-            "symbol": fy_symbol,
-            "direction": final_action,
-            "qty": 1,
-            "entry_price": entry_price,
-            "entry_time": entry_time,
-            "exit_price": None,
-            "exit_time": None,
-            "status": "OPEN",
-            "timeframe": s.get("signal_timeframe"),
-            "strategy": ",".join(s.get("contributing_strategies", [])),
-            "reason": "LiveEngine aggregated signal",
-            "pnl": 0.0,
-        }
-
-        if ltp is not None and ltp > 0 and entry_price > 0:
-            if final_action == "BUY":
-                pnl_points = ltp - entry_price
-            else:
-                pnl_points = entry_price - ltp
-            pnl_value = pnl_points
-
-            trade["points"] = pnl_points
-            trade["pnl"] = pnl_value
-
-            # Simple virtual close when SL or Target is breached
-            if stop_loss > 0 and target > 0:
-                now = datetime.utcnow()
-                if (final_action == "BUY" and ltp >= target) or (
-                    final_action == "SELL" and ltp <= target
-                ):
-                    trade["status"] = "CLOSED"
-                    trade["exit_price"] = ltp
-                    trade["exit_time"] = now
-                elif (final_action == "BUY" and ltp <= stop_loss) or (
-                    final_action == "SELL" and ltp >= stop_loss
-                ):
-                    trade["status"] = "CLOSED"
-                    trade["exit_price"] = ltp
-                    trade["exit_time"] = now
-
-        engine_trades.append(trade)
-
-    return engine_trades
 
 
 def compute_pnl_matrix(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -725,6 +503,175 @@ def compute_pnl_matrix(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
         "total_pnl": total_pnl,
         "max_drawdown": max_drawdown,
     }
+
+
+def _ensure_paper_state() -> None:
+    """Ensure paper trading state structures exist in session_state."""
+
+    if "paper_trades" not in st.session_state:
+        st.session_state["paper_trades"] = []
+    if "paper_positions" not in st.session_state:
+        st.session_state["paper_positions"] = {}
+    if "paper_last_candle" not in st.session_state:
+        st.session_state["paper_last_candle"] = {}
+
+
+def _open_paper_trade(
+    symbol_code: str,
+    display_symbol: str,
+    direction: str,
+    price: float,
+    when: datetime,
+    timeframe: str,
+    strategy: str,
+    reason: str,
+) -> None:
+    """Open a new simulated trade and store it in session_state."""
+
+    _ensure_paper_state()
+    trades: List[Dict[str, Any]] = st.session_state["paper_trades"]
+    positions: Dict[str, Dict[str, Any]] = st.session_state["paper_positions"]
+
+    trade = {
+        "instrument": display_symbol,
+        "symbol": symbol_code,
+        "direction": direction,
+        "qty": 1,
+        "entry_price": float(price),
+        "entry_time": when,
+        "exit_price": None,
+        "exit_time": None,
+        "status": "OPEN",
+        "timeframe": timeframe,
+        "strategy": strategy,
+        "reason": reason,
+    }
+
+    trades.append(trade)
+    positions[symbol_code] = trade
+    st.session_state["paper_trades"] = trades
+    st.session_state["paper_positions"] = positions
+
+
+def _close_paper_trade(symbol_code: str, exit_price: float, when: datetime, reason: str) -> None:
+    """Close an existing simulated trade for the given symbol code."""
+
+    _ensure_paper_state()
+    positions: Dict[str, Dict[str, Any]] = st.session_state["paper_positions"]
+    trades: List[Dict[str, Any]] = st.session_state["paper_trades"]
+
+    pos = positions.get(symbol_code)
+    if not pos:
+        return
+
+    direction = pos.get("direction", "BUY")
+    qty = int(pos.get("qty", 1))
+    entry_price = float(pos.get("entry_price", 0.0))
+
+    if direction == "BUY":
+        pnl_points = float(exit_price) - entry_price
+    else:
+        pnl_points = entry_price - float(exit_price)
+    pnl_value = pnl_points * qty
+
+    # Update the trade dict in place
+    pos["exit_price"] = float(exit_price)
+    pos["exit_time"] = when
+    pos["status"] = "CLOSED"
+    pos["points"] = pnl_points
+    pos["pnl"] = pnl_value
+    pos["close_reason"] = reason
+
+    # Sync back to the list (in case of distinct dicts)
+    for t in trades:
+        if t is pos:
+            break
+        if (
+            t.get("symbol") == symbol_code
+            and t.get("entry_time") == pos.get("entry_time")
+            and t.get("status") != "CLOSED"
+        ):
+            t.update(pos)
+
+    positions.pop(symbol_code, None)
+    st.session_state["paper_positions"] = positions
+    st.session_state["paper_trades"] = trades
+
+
+def run_paper_trading_step(selected_symbol: str) -> None:
+    """Simple paper-trading loop based on new 1m candles for the selected symbol.
+
+    This is a placeholder strategy using candle body movement as the condition.
+    Replace the thresholds/logic here with your production strategy rules.
+    """
+
+    _ensure_paper_state()
+
+    symbol_code = NIFTY_50_SYMBOLS[selected_symbol]
+    df = get_candles_snapshot(symbol_code, limit=50)
+    if df.empty or len(df) < 3:
+        return
+
+    last_row = df.iloc[-1]
+    last_ts = last_row["date"]
+    if isinstance(last_ts, pd.Timestamp):
+        last_ts = last_ts.to_pydatetime()
+
+    last_processed = st.session_state["paper_last_candle"].get(symbol_code)
+    if isinstance(last_processed, pd.Timestamp):
+        last_processed = last_processed.to_pydatetime()
+
+    # Process each candle only once
+    if last_processed is not None and last_ts <= last_processed:
+        return
+
+    st.session_state["paper_last_candle"][symbol_code] = last_ts
+
+    close_price = float(last_row["close"])
+    open_price = float(last_row["open"])
+    if close_price <= 0 or open_price <= 0:
+        return
+
+    positions: Dict[str, Dict[str, Any]] = st.session_state["paper_positions"]
+    pos = positions.get(symbol_code)
+
+    body = close_price - open_price
+    body_pct = body / open_price
+
+    # Manage existing position (basic target / stop-loss)
+    if pos is not None:
+        entry = float(pos.get("entry_price", close_price))
+        direction = pos.get("direction", "BUY")
+        move = (close_price - entry) / entry if entry > 0 else 0.0
+        if direction == "SELL":
+            move = -move
+
+        target_pct = 0.01   # +1%
+        stop_pct = -0.005   # -0.5%
+
+        if move >= target_pct or move <= stop_pct:
+            reason = "Target hit" if move >= target_pct else "Stop loss hit"
+            _close_paper_trade(symbol_code, close_price, last_ts, reason)
+        return
+
+    # No open position: check for new entry based on candle body
+    threshold_pct = 0.003  # 0.3% body move
+    if abs(body_pct) < threshold_pct:
+        return
+
+    direction = "BUY" if body > 0 else "SELL"
+    reason = f"Candle body move {body_pct * 100:.2f}%"
+
+    _open_paper_trade(
+        symbol_code=symbol_code,
+        display_symbol=selected_symbol,
+        direction=direction,
+        price=close_price,
+        when=last_ts,
+        timeframe="1m",
+        strategy="CandleBodyBreakout",
+        reason=reason,
+    )
 
 
 def fetch_history(symbol: str, timeframe: str, start: date, end: date) -> pd.DataFrame:
@@ -772,182 +719,248 @@ def fetch_history(symbol: str, timeframe: str, start: date, end: date) -> pd.Dat
     return df[["date", "open", "high", "low", "close", "volume"]].sort_values("date")
 
 
-def backtest_momentum_strategy(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty or len(df) < 3:
-        return pd.DataFrame()
-
-    df = df.sort_values("date").reset_index(drop=True)
-
-    position: Optional[Dict[str, Any]] = None
-    trades: List[Dict[str, Any]] = []
-
-    for i in range(1, len(df)):
-        row = df.iloc[i]
-        prev = df.iloc[i - 1]
-        close = float(row["close"])
-        prev_close = float(prev["close"])
-        move_pct = (close - prev_close) / prev_close
-
-        if position is None:
-            if abs(move_pct) >= 0.002:
-                direction = "BUY" if move_pct > 0 else "SELL"
-                position = {
-                    "direction": direction,
-                    "entry_price": close,
-                    "entry_time": row["date"],
-                }
-            continue
-
-        entry = float(position["entry_price"])
-        direction = position["direction"]
-        favored = (close - entry) / entry if direction == "BUY" else (entry - close) / entry
-
-        if favored >= 0.01 or favored <= -0.005:
-            exit_price = close
-            exit_time = row["date"]
-            if direction == "BUY":
-                pnl_points = exit_price - entry
-            else:
-                pnl_points = entry - exit_price
-            pnl_val = pnl_points
-
-            trades.append(
-                {
-                    "symbol": None,
-                    "direction": direction,
-                    "qty": 1,
-                    "entry_price": entry,
-                    "entry_time": position["entry_time"],
-                    "exit_price": exit_price,
-                    "exit_time": exit_time,
-                    "status": "CLOSED",
-                    "timeframe": None,
-                    "strategy": "Momentum_0.2pct",
-                    "reason": "Backtest rule hit",
-                    "pnl": pnl_val,
-                    "points": pnl_points,
-                }
-            )
-            position = None
-
-    if not trades:
-        return pd.DataFrame()
-
-    trades_df = pd.DataFrame(trades)
-    trades_df["cum_pnl"] = trades_df["pnl"].cumsum()
-    return trades_df
-
-
 def run_backtest(symbol_name: str, timeframe: str, start: date, end: date) -> pd.DataFrame:
-    symbol_code = NIFTY_50_SYMBOLS[symbol_name]
-    ohlcv = fetch_history(symbol_code, timeframe, start, end)
-    if ohlcv.empty:
-        return pd.DataFrame()
+    """Placeholder backtest that currently does not use the old momentum demo.
 
-    trades_df = backtest_momentum_strategy(ohlcv)
-    if trades_df.empty:
-        return trades_df
+    The momentum-based backtest has been removed. This function can be
+    extended to run the production strategies (via FeatureEngine,
+    LiveStrategyRunner, and SignalAggregator) over historical data.
+    """
 
-    trades_df["symbol"] = symbol_code
-    trades_df["timeframe"] = timeframe
-    return trades_df
+    _ = (symbol_name, timeframe, start, end)
+    return pd.DataFrame()
 
 
 def render_live_tab() -> None:
+    """High-density Live Dashboard with watchlist, chart, log, and signals."""
+
     get_ws_manager()
-    get_paper_engine()
 
-    st.subheader("Live Dashboard")
+    selected_symbol = st.session_state.get("selected_symbol", sorted(NIFTY_50_SYMBOLS.keys())[0])
+    symbol_code = NIFTY_50_SYMBOLS[selected_symbol]
 
-    col_sel1, col_sel2 = st.columns([2, 1])
-    with col_sel1:
-        symbol_name = st.selectbox(
-            "Nifty-50 Symbol",
-            sorted(NIFTY_50_SYMBOLS.keys()),
-            index=0,
-        )
+    # Advance the paper trading engine based on the latest candle
+    run_paper_trading_step(selected_symbol)
 
-    symbol_code = NIFTY_50_SYMBOLS[symbol_name]
+    col_left, col_mid, col_right = st.columns([1.5, 4, 1.5])
 
-    prices = get_price_snapshot()
-    latest = prices.get(symbol_code)
-    ltp = float(latest["ltp"]) if latest and latest.get("ltp") is not None else None
+    # Left: Watchlist
+    with col_left:
+        with st.container():
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.markdown("#### Watchlist")
 
-    with col_sel2:
-        if ltp is not None:
-            st.metric("LTP", f"{ltp:.2f}")
-        else:
-            st.metric("LTP", "–")
+            symbols_sorted = sorted(NIFTY_50_SYMBOLS.keys())
+            try:
+                current_index = symbols_sorted.index(selected_symbol)
+            except ValueError:
+                current_index = 0
 
-    df = get_candles_snapshot(symbol_code, limit=200)
-    if df.empty:
-        st.info("Waiting for live data from Fyers WebSocket (SymbolUpdate)...")
-    else:
-        fig = go.Figure(
-            data=[
-                go.Candlestick(
-                    x=df["date"],
-                    open=df["open"],
-                    high=df["high"],
-                    low=df["low"],
-                    close=df["close"],
-                    name=symbol_name,
+            choice = st.radio(
+                "Nifty-50 Stocks",
+                options=symbols_sorted,
+                index=current_index,
+                label_visibility="collapsed",
+            )
+            if choice != selected_symbol:
+                st.session_state["selected_symbol"] = choice
+                selected_symbol = choice
+                symbol_code = NIFTY_50_SYMBOLS[selected_symbol]
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    # Middle: Candlestick chart (top) + Operational Log (bottom)
+    with col_mid:
+        # Chart card
+        with st.container():
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.markdown(f"#### {selected_symbol} – Live Candlestick")
+
+            prices = get_price_snapshot()
+            latest = prices.get(symbol_code)
+            ltp = float(latest["ltp"]) if latest and latest.get("ltp") is not None else None
+
+            if ltp is not None:
+                st.caption(f"LTP: {ltp:.2f}")
+            else:
+                st.caption("LTP: –")
+
+            df = get_candles_snapshot(symbol_code, limit=180)
+            if df.empty:
+                st.info("Waiting for live data from Fyers WebSocket (SymbolUpdate)...")
+            else:
+                fig = go.Figure(
+                    data=[
+                        go.Candlestick(
+                            x=df["date"],
+                            open=df["open"],
+                            high=df["high"],
+                            low=df["low"],
+                            close=df["close"],
+                            name=selected_symbol,
+                            increasing_line_color="#22c55e",
+                            decreasing_line_color="#f97373",
+                        )
+                    ]
                 )
+                fig.update_layout(
+                    template="plotly_dark",
+                    xaxis_rangeslider_visible=False,
+                    height=420,
+                    margin=dict(l=10, r=10, t=30, b=10),
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # Operational log card
+        with st.container():
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.markdown("#### Operational Log")
+
+            trades = get_trades_with_pnl_snapshot()
+            symbol_trades = [
+                t
+                for t in trades
+                if t.get("symbol") == symbol_code or t.get("instrument") == selected_symbol
             ]
-        )
-        fig.update_layout(
-            template="plotly_dark",
-            xaxis_rangeslider_visible=False,
-            height=500,
-            margin=dict(l=10, r=10, t=30, b=10),
-        )
-        st.plotly_chart(fig, use_container_width=True)
+
+            if symbol_trades:
+                df_log = pd.DataFrame(symbol_trades)
+                for col in ["entry_time", "exit_time"]:
+                    if col in df_log.columns:
+                        df_log[col] = df_log[col].astype(str)
+
+                df_log = df_log.sort_values(by="entry_time", ascending=False)
+                st.dataframe(df_log, use_container_width=True, height=220)
+
+                csv = df_log.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="Download Operational Log CSV",
+                    data=csv,
+                    file_name="operational_log.csv",
+                    mime="text/csv",
+                    key="operational_log_download",
+                )
+            else:
+                st.info("No simulated trades yet for this instrument.")
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    # Right: Live Signals + Execution/Position summary
+    with col_right:
+        # Live signals card
+        with st.container():
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.markdown("#### Live Signals")
+
+            manager = get_engine_manager()
+            if manager is None:
+                st.warning("Engine is not running. Check FYERS credentials / access token.")
+            else:
+                engine_signals: List[Dict[str, Any]] = []
+                try:
+                    engine_signals = manager.get_signals(limit=50) or []
+                except Exception as e:
+                    st.error(f"Error fetching engine signals: {e}")
+
+                if engine_signals:
+                    df_sig = pd.DataFrame(engine_signals)
+
+                    # Try to filter to the selected symbol if symbol column exists
+                    symbol_cols = [c for c in df_sig.columns if c.lower() in {"symbol", "instrument"}]
+                    if symbol_cols:
+                        sym_col = symbol_cols[0]
+                        df_sig = df_sig[df_sig[sym_col] == symbol_code]
+
+                    # Show only the most relevant columns if present
+                    preferred_cols = [
+                        "signal_timestamp",
+                        "symbol",
+                        "timeframe",
+                        "action",
+                        "direction",
+                        "confidence",
+                        "strategy_name",
+                    ]
+                    cols_to_show = [c for c in preferred_cols if c in df_sig.columns]
+                    if cols_to_show:
+                        df_sig = df_sig[cols_to_show]
+
+                    for col in df_sig.columns:
+                        if "time" in col.lower():
+                            df_sig[col] = df_sig[col].astype(str)
+
+                    if df_sig.empty:
+                        st.info("No recent engine signals for this instrument.")
+                    else:
+                        st.dataframe(df_sig, use_container_width=True, height=220)
+                else:
+                    st.info("No engine signals available yet.")
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # Execution / Position summary card
+        with st.container():
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.markdown("#### Execution / Positions")
+
+            prices = get_price_snapshot()
+            ltp = None
+            latest = prices.get(symbol_code)
+            if latest and latest.get("ltp") is not None:
+                ltp = float(latest["ltp"])
+
+            positions = get_open_positions_snapshot()
+            pos = positions.get(symbol_code)
+
+            if not pos:
+                st.info("No open paper positions for the selected instrument.")
+            else:
+                entry = float(pos.get("entry_price", 0.0))
+                direction = pos.get("direction", "BUY")
+                qty = int(pos.get("qty", 1))
+
+                if ltp is not None and entry > 0:
+                    if direction == "BUY":
+                        points = ltp - entry
+                    else:
+                        points = entry - ltp
+                    pnl = points * qty
+                else:
+                    points = 0.0
+                    pnl = 0.0
+
+                st.markdown(
+                    f"**Direction:** {direction}  |  **Qty:** {qty}  |  **Entry:** {entry:.2f}"
+                )
+                if ltp is not None:
+                    st.markdown(f"**LTP:** {ltp:.2f}")
+
+                pnl_color = "#22c55e" if pnl >= 0 else "#f97373"
+                st.markdown(
+                    f"Unrealized P&L: <span style='color:{pnl_color}'>{pnl:.2f} INR</span>",
+                    unsafe_allow_html=True,
+                )
+
+            st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_trades_tab() -> None:
-    st.subheader("Paper Trade Log & P&L (Demo Momentum) vs Engine P&L")
+    st.subheader("Paper Trade Log & P&L")
 
-    # Demo paper-trade engine metrics
     trades = get_trades_with_pnl_snapshot()
     matrix = compute_pnl_matrix(trades)
 
-    # Engine-based pseudo trades from LiveEngine signals
-    engine_trades = get_engine_trades_snapshot()
-    engine_matrix = compute_pnl_matrix(engine_trades) if engine_trades else {
-        "total_trades": 0,
-        "wins": 0,
-        "losses": 0,
-        "win_rate": 0.0,
-        "total_pnl": 0.0,
-        "max_drawdown": 0.0,
-    }
-
     col1, col2, col3, col4, col5 = st.columns(5)
-    with col1:
-        st.metric("Demo Trades", matrix["total_trades"])
-    with col2:
-        st.metric("Demo Win Rate %", f"{matrix['win_rate']:.2f}")
-    with col3:
-        st.metric("Demo Total P&L", f"{matrix['total_pnl']:.2f}")
-    with col4:
-        st.metric("Demo W / L", f"{matrix['wins']} / {matrix['losses']}")
-    with col5:
-        st.metric("Demo Max DD", f"{matrix['max_drawdown']:.2f}")
-
-    e1, e2, e3, e4, e5 = st.columns(5)
-    with e1:
-        st.metric("Engine Trades", engine_matrix["total_trades"])
-    with e2:
-        st.metric("Engine Win Rate %", f"{engine_matrix['win_rate']:.2f}")
-    with e3:
-        st.metric("Engine Total P&L", f"{engine_matrix['total_pnl']:.2f}")
-    with e4:
-        st.metric("Engine W / L", f"{engine_matrix['wins']} / {engine_matrix['losses']}")
-    with e5:
-        st.metric("Engine Max DD", f"{engine_matrix['max_drawdown']:.2f}")
+    col1.metric("Total Trades", matrix["total_trades"])
+    col2.metric("Win Rate %", f"{matrix['win_rate']:.2f}")
+    col3.metric("Total P&L (INR)", f"{matrix['total_pnl']:.2f}")
+    col4.metric("Winning / Losing", f"{matrix['wins']} / {matrix['losses']}")
+    col5.metric("Max Drawdown", f"{matrix['max_drawdown']:.2f}")
 
     st.markdown("---")
-    st.subheader("Demo Trade Log (Momentum)")
+    st.subheader("Trade Log")
 
     if trades:
         df = pd.DataFrame(trades)
@@ -956,50 +969,17 @@ def render_trades_tab() -> None:
                 df[col] = df[col].astype(str)
 
         df = df.sort_values(by="entry_time", ascending=False)
-        st.dataframe(df, use_container_width=True, height=300)
+        st.dataframe(df, use_container_width=True, height=400)
 
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="Download Demo CSV",
+            label="Download CSV",
             data=csv,
-            file_name="paper_trades_demo.csv",
+            file_name="paper_trades.csv",
             mime="text/csv",
         )
     else:
-        st.info("No demo trades yet. Momentum strategy is monitoring live prices.")
-
-    st.markdown("---")
-    st.subheader("Engine Signals Log (Production Strategies)")
-
-    manager = get_engine_manager()
-    if manager is None:
-        st.warning("Engine is not running. Check FYERS credentials / access token.")
-        return
-
-    try:
-        engine_signals: List[Dict[str, Any]] = manager.get_signals(limit=200) or []
-    except Exception as e:
-        st.error(f"Error fetching engine signals: {e}")
-        return
-
-    if not engine_signals:
-        st.info("No engine signals have been generated yet.")
-        return
-
-    df_engine = pd.DataFrame(engine_signals)
-    for col in ["signal_timestamp", "timestamp_generated"]:
-        if col in df_engine.columns:
-            df_engine[col] = df_engine[col].astype(str)
-
-    st.dataframe(df_engine, use_container_width=True, height=300)
-
-    csv_engine = df_engine.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="Download Engine Signals CSV",
-        data=csv_engine,
-        file_name="engine_signals_log.csv",
-        mime="text/csv",
-    )
+        st.info("No trades yet. Strategy is monitoring live prices.")
 
 
 def render_backtest_tab() -> None:
@@ -1134,29 +1114,96 @@ def render_signals_tab() -> None:
         else:
             st.info("Engine is running but no signals have been generated yet.")
 
-    st.markdown("---")
-    st.subheader("Paper Strategy Signals (Momentum Demo)")
 
-    signals = get_active_signals_snapshot()
-    if not signals:
-        st.info("No active paper-strategy signals at the moment.")
-        return
+def render_analytics_and_backtesting_tab() -> None:
+    """Aggregate analytics, paper trade log, backtesting, and engine signals."""
 
-    df = pd.DataFrame(signals)
-    for col in ["time", "expires_at"]:
-        if col in df.columns:
-            df[col] = df[col].astype(str)
+    sub_trades, sub_backtest, sub_signals = st.tabs(
+        ["Paper Trade Analytics", "Backtesting", "Engine Signals"]
+    )
 
-    st.dataframe(df, use_container_width=True, height=300)
+    with sub_trades:
+        render_trades_tab()
+
+    with sub_backtest:
+        render_backtest_tab()
+
+    with sub_signals:
+        render_signals_tab()
 
 
 def main() -> None:
-    st.title("Nifty-50 Trading Dashboard")
+    _apply_dark_theme()
+    _init_session_state()
+
+    st.title("Nifty-50 Algorithmic Trading Terminal")
 
     get_ws_manager()
-    get_paper_engine()
     # Start LiveEngine (production strategies) in background
     get_engine_manager()
+
+    # Header KPIs row
+    trades = get_trades_with_pnl_snapshot()
+    matrix = compute_pnl_matrix(trades)
+
+    k1, k2, k3, k4, k5 = st.columns(5)
+    pnl_val = matrix["total_pnl"]
+    pnl_color_class = "kpi-green" if pnl_val >= 0 else "kpi-red"
+
+    with k1:
+        st.markdown(
+            f"""
+            <div class="card">
+                <div class="kpi-label">Live P&amp;L (INR)</div>
+                <div class="kpi-value {pnl_color_class}">{pnl_val:.2f}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with k2:
+        st.markdown(
+            f"""
+            <div class="card">
+                <div class="kpi-label">Win Rate %</div>
+                <div class="kpi-value kpi-neutral">{matrix['win_rate']:.2f}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with k3:
+        st.markdown(
+            f"""
+            <div class="card">
+                <div class="kpi-label">Total Trades</div>
+                <div class="kpi-value kpi-neutral">{matrix['total_trades']}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with k4:
+        st.markdown(
+            f"""
+            <div class="card">
+                <div class="kpi-label">Winning / Losing Trades</div>
+                <div class="kpi-value kpi-neutral">{matrix['wins']} / {matrix['losses']}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with k5:
+        st.markdown(
+            f"""
+            <div class="card">
+                <div class="kpi-label">Max Drawdown</div>
+                <div class="kpi-value kpi-neutral">{matrix['max_drawdown']:.2f}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     status_cols = st.columns(3)
     with status_cols[0]:
@@ -1166,21 +1213,13 @@ def main() -> None:
     with status_cols[2]:
         st.caption(f"Open positions: {len(get_open_positions_snapshot())}")
 
-    tab_live, tab_trades, tab_backtest, tab_signals = st.tabs(
-        ["Live Dashboard", "Paper Trade Log", "Backtesting", "Signals"]
-    )
+    tab_live, tab_analytics = st.tabs(["Live Dashboard", "Analytics & Backtesting"])
 
     with tab_live:
         render_live_tab()
 
-    with tab_trades:
-        render_trades_tab()
-
-    with tab_backtest:
-        render_backtest_tab()
-
-    with tab_signals:
-        render_signals_tab()
+    with tab_analytics:
+        render_analytics_and_backtesting_tab()
 
 
 if __name__ == "__main__":
