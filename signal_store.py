@@ -19,6 +19,13 @@ from contextlib import contextmanager
 
 from live_signal_aggregator import AggregatedSignal
 
+# Import cloud_utils for path management (PythonAnywhere compatibility)
+try:
+    from cloud_utils import get_signals_path, is_pythonanywhere
+    _cloud_utils_available = True
+except ImportError:
+    _cloud_utils_available = False
+
 logger = logging.getLogger(__name__)
 
 class SignalStore:
@@ -27,8 +34,12 @@ class SignalStore:
     def __init__(self, config: Dict = None):
         self.config = config or {}
         
-        # Storage paths
-        self.base_path = Path(self.config.get('base_path', 'signals'))
+        # Storage paths - use cloud_utils if available
+        if _cloud_utils_available and not self.config.get('base_path'):
+            signals_path = get_signals_path()
+            self.base_path = Path(signals_path)
+        else:
+            self.base_path = Path(self.config.get('base_path', 'signals'))
         self.base_path.mkdir(exist_ok=True, parents=True)
         
         # Storage settings

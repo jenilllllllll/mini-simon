@@ -6,18 +6,42 @@ NOTE: Sensitive values like Fyers app_id and access_token are intentionally
 not hard-coded here. They are read from environment variables so that this
 file can be safely committed to GitHub.
 
-Set these environment variables (or Streamlit secrets on Streamlit Cloud):
+Set these environment variables (or in a .env file for local development):
 
 - FYERS_APP_ID
 - FYERS_ACCESS_TOKEN
+
+For PythonAnywhere deployment:
+1. Create a .env file in the project root
+2. Set environment variables in the PythonAnywhere dashboard
 """
 
 import os
 import json
 import yaml
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import logging
+
+# Load environment variables from .env file if it exists
+try:
+    from dotenv import load_dotenv
+    dotenv_path = Path(__file__).parent / '.env'
+    if dotenv_path.exists():
+        load_dotenv(dotenv_path)
+except ImportError:
+    pass  # python-dotenv not installed, rely on system env vars
+
+# Import cloud utilities for path management
+try:
+    from cloud_utils import (
+        get_logs_path, get_signals_path, get_trades_path, 
+        get_data_path, get_fyers_credentials, get_websocket_config,
+        get_trading_config, is_pythonanywhere, cloud_logger
+    )
+    _cloud_utils_available = True
+except ImportError:
+    _cloud_utils_available = False
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +49,7 @@ logger = logging.getLogger(__name__)
 class Config:
     """Configuration manager with support for multiple formats."""
 
-    def __init__(self, config_file: str | None = None):
+    def __init__(self, config_file: Optional[str] = None):
         self.config_file = config_file
         self.config_data: Dict[str, Any] = {}
         self.load_config()
@@ -66,6 +90,23 @@ class Config:
         app_id = os.getenv("FYERS_APP_ID", "YOUR_APP_ID")
         access_token = os.getenv("FYERS_ACCESS_TOKEN", "YOUR_ACCESS_TOKEN")
 
+        # Use cloud_utils paths if available for PythonAnywhere compatibility
+        if _cloud_utils_available:
+            log_path = get_logs_path()
+            log_file = os.path.join(log_path, "live_engine.log")
+            ws_config = get_websocket_config()
+            trading_config = get_trading_config()
+        else:
+            log_path = "logs"
+            log_file = "logs/live_engine.log"
+            ws_config = {
+                'max_reconnect_attempts': int(os.getenv('WS_MAX_RECONNECT_ATTEMPTS', '10')),
+                'reconnect_delay': int(os.getenv('WS_RECONNECT_DELAY', '5')),
+                'heartbeat_interval': int(os.getenv('WS_HEARTBEAT_INTERVAL', '30')),
+                'tick_timeout': int(os.getenv('WS_TICK_TIMEOUT', '90')),
+            }
+            trading_config = {'enable_mcx': True}
+
         return {
             # Data Feed Configuration
             "data_feed": {
@@ -73,7 +114,7 @@ class Config:
                 "access_token": access_token,
                 "symbols": [
                     "RELIANCE",
-                    "TCS",
+                    "TCS", 
                     "INFY",
                     "HDFCBANK",
                     "ICICIBANK",
@@ -87,25 +128,102 @@ class Config:
                     "ASIANPAINT",
                     "MARUTI",
                     "SUNPHARMA",
+                    "WIPRO",
+                    "ULTRACEMCO",
+                    "NESTLEIND",
+                    "POWERGRID",
+                    "BAJAJFINSV",
+                    "TECHM",
+                    "NTPC",
+                    "GRASIM",
+                    "JSWSTEEL",
+                    "HCLTECH",
+                    "TATAMOTORS",
+                    "DRREDDY",
+                    "CIPLA",
+                    "ONGC",
+                    "HDFCLIFE",
+                    "DIVISLAB",
+                    "HEROMOTOCO",
+                    "BRITANNIA",
+                    "BPCL",
+                    "COALINDIA",
+                    "ADANIENT",
+                    "ADANIPORTS",
+                    "INDUSINDBK",
+                    "BAJAJ-AUTO",
+                    "EICHERMOT",
+                    "TATACONSUM",
+                    "HINDALCO",
+                    "APOLLOHOSP",
+                    "TATASTEEL",
+                    "M&M",
+                    "BHARTIARTL",
+                    "SHRIRAMFIN",
+                    "JIOFINANCE",
                 ],
                 "timeframes": ["5m", "15m", "60m"],
-                "log_path": "logs",
-                "reconnect_attempts": 5,
-                "reconnect_delay": 5,
+                "log_path": log_path,
+                "reconnect_attempts": ws_config['max_reconnect_attempts'],
+                "reconnect_delay": ws_config['reconnect_delay'],
+                "heartbeat_interval": ws_config['heartbeat_interval'],
+                "tick_timeout": ws_config['tick_timeout'],
+                "enable_mcx": trading_config.get('enable_mcx', True),
             },
             # Additional sections kept minimal for dashboard usage; extend as
             # needed for the full engine.
             "logging": {
-                "level": "INFO",
+                "level": os.getenv("LOG_LEVEL", "INFO"),
                 "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                "file": "live_engine.log",
+                "file": log_file,
                 "max_size_mb": 100,
                 "backup_count": 5,
-                "console": True,
+                "console": not _cloud_utils_available or not is_pythonanywhere(),
             },
+            # Strategy Configuration
+            "strategy_runner": {
+                "strategy_weights": {
+                    "vol_spike": 0.35,
+                    "body_imbalance": 0.25,
+                    "order_block": 0.25,
+                    "stock_burner": 0.15,
+                    "ema_scalping_5": 0.40
+                },
+                "timeframe_weights": {
+                    "3m": 0.5, "5m": 0.6, "15m": 0.7,
+                    "60m": 1.0, "120m": 1.2, "180m": 1.3,
+                    "240m": 1.4, "1D": 1.6
+                }
+            },
+            "vol_spike": {
+                "enabled": True,
+                "volume_multiplier": 1.5,
+                "lookback": 20
+            },
+            "body_imbalance": {
+                "enabled": True,
+                "min_body_ratio": 0.5
+            },
+            "order_block": {
+                "enabled": True,
+                "atr_period": 14
+            },
+            "stock_burner": {
+                "enabled": True,
+                "fast_ema": 9,
+                "slow_ema": 21
+            },
+            "ema_scalping_5": {
+                "enabled": True,
+                "confidence": 0.70
+            },
+            "signal_aggregator": {
+                "min_confidence_threshold": 0.2,  # Reduced from 0.3 for more signals
+                "confluence_threshold": 1        # Reduced from 2 for easier signal generation
+            }
         }
 
-    def get(self, key: str, default: Any | None = None) -> Any:
+    def get(self, key: str, default: Optional[Any] = None) -> Any:
         """Get configuration value using dotted key notation.
 
         Example: cfg.get("data_feed.app_id")

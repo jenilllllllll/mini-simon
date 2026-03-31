@@ -15,7 +15,11 @@ import threading
 import time as time_module
 from fyers_apiv3 import fyersModel
 
+import pytz
+
 logger = logging.getLogger(__name__)
+
+IST = pytz.timezone("Asia/Kolkata")
 
 class LiveCandleManager:
     """Manages real-time candle data for multiple symbols and timeframes"""
@@ -37,15 +41,34 @@ class LiveCandleManager:
         # Indian market hours
         self.market_open = time(9, 15)
         self.market_close = time(15, 30)
+
+        # MCX commodity market hours (rough)
+        self.mcx_market_open = time(9, 0)
+        self.mcx_market_close = time(23, 30)
         
     def add_callback(self, callback: Callable):
         """Add callback function for new candle events"""
         self.callbacks.append(callback)
+
+    def _is_market_open_for_symbol(self, symbol: str, dt: Optional[datetime] = None) -> bool:
+        if dt is None:
+            dt = datetime.now(IST)
+
+        weekday = dt.weekday()
+        if weekday > 4:
+            return False
+
+        current_time = dt.time()
+        sym = str(symbol or "").upper()
+        if sym.startswith("MCX:"):
+            return self.mcx_market_open <= current_time <= self.mcx_market_close
+
+        return self.market_open <= current_time <= self.market_close
         
     def _is_market_hours(self, dt: datetime = None) -> bool:
         """Check if current time is within market hours"""
         if dt is None:
-            dt = datetime.now()
+            dt = datetime.now(IST)
         current_time = dt.time()
         weekday = dt.weekday()
         
@@ -58,7 +81,7 @@ class LiveCandleManager:
         
     def _get_candle_timestamp(self, timestamp: int, timeframe: str) -> datetime:
         """Get candle start timestamp based on timeframe"""
-        dt = datetime.fromtimestamp(timestamp)
+        dt = datetime.fromtimestamp(timestamp, IST)
         tf_secs = self.tf_seconds[timeframe]
         
         # Round down to nearest timeframe boundary
@@ -74,7 +97,7 @@ class LiveCandleManager:
             
     def update_tick(self, symbol: str, tick_data: dict):
         """Process incoming tick data and update candles"""
-        if not self._is_market_hours():
+        if not self._is_market_open_for_symbol(symbol):
             return
             
         try:
@@ -93,7 +116,15 @@ class LiveCandleManager:
         except Exception as e:
             logger.error(f"Error processing tick for {symbol}: {e}")
             
-    def _update_candle(self, symbol: str, timeframe: str, candle_time: datetime, price: float, volume: int):
+    def _update_candle(
+        self,
+        symbol: str,
+        timeframe: str,
+        candle_time: datetime,
+        price: float,
+        volume: int,
+        trigger_callbacks: bool = True,
+    ):
         """Update candle for specific symbol and timeframe"""
         candles = self.candles[symbol][timeframe]
         
@@ -117,12 +148,13 @@ class LiveCandleManager:
             }
             candles.append(candle)
             
-            # Trigger callbacks for new candle
-            for callback in self.callbacks:
-                try:
-                    callback(symbol, timeframe, candle)
-                except Exception as e:
-                    logger.error(f"Error in candle callback: {e}")
+            if trigger_callbacks:
+                # Trigger callbacks for new candle
+                for callback in self.callbacks:
+                    try:
+                        callback(symbol, timeframe, candle)
+                    except Exception as e:
+                        logger.error(f"Error in candle callback: {e}")
                     
             # Limit candle history
             if len(candles) > self.max_candles:
@@ -145,7 +177,7 @@ class LiveCandleManager:
         return candles[-1] if candles else None
 
 class FyersWebSocketFeed:
-    """Fyers WebSocket connection for real-time data"""
+    """Fyers WebSocket connection for real-time data with keep-alive heartbeat."""
     
     def __init__(self, app_id: str, access_token: str, symbols: List[str], timeframes: List[str]):
         self.app_id = app_id
@@ -156,12 +188,24 @@ class FyersWebSocketFeed:
         self.ws = None
         self.is_connected = False
         self.reconnect_attempts = 0
-        self.max_reconnect_attempts = 5
+        self.max_reconnect_attempts = 10  # Increased for cloud stability
         self.reconnect_delay = 5
+        
+        # Keep-alive heartbeat configuration
+        self.heartbeat_interval = 30  # seconds
+        self.last_message_time = 0
+        self.heartbeat_thread = None
+        self._stop_heartbeat = threading.Event()
+        
+        # Connection monitoring
+        self.last_tick_time = 0
+        self.tick_timeout = 90  # Reconnect if no tick for 90 seconds
+        self._connection_monitor_thread = None
         
     def on_message(self, ws, message):
         """Handle WebSocket messages"""
         try:
+            self.last_message_time = time_module.time()
             data = json.loads(message)
             
             if data.get('type') == 'sf':
@@ -174,6 +218,7 @@ class FyersWebSocketFeed:
                         'volume': data.get('volume', 0)
                     }
                     self.candle_manager.update_tick(symbol, tick_data)
+                    self.last_tick_time = time_module.time()
                     
             elif data.get('type') == 'cf':
                 # Candle data (if we subscribe to candle feed)
@@ -191,6 +236,7 @@ class FyersWebSocketFeed:
         """Handle WebSocket connection close"""
         logger.warning(f"WebSocket connection closed: {close_status_code} - {close_msg}")
         self.is_connected = False
+        self._stop_heartbeat.set()
         self._attempt_reconnect()
         
     def on_open(self, ws):
@@ -198,7 +244,12 @@ class FyersWebSocketFeed:
         logger.info("WebSocket connection established")
         self.is_connected = True
         self.reconnect_attempts = 0
+        self.last_message_time = time_module.time()
+        self.last_tick_time = time_module.time()
+        self._stop_heartbeat.clear()
         self._subscribe_symbols()
+        self._start_heartbeat()
+        self._start_connection_monitor()
         
     def _subscribe_symbols(self):
         """Subscribe to symbols for real-time data"""
@@ -217,15 +268,74 @@ class FyersWebSocketFeed:
         except Exception as e:
             logger.error(f"Error subscribing to symbols: {e}")
             
+    def _start_heartbeat(self):
+        """Start keep-alive heartbeat thread"""
+        def heartbeat_loop():
+            while not self._stop_heartbeat.is_set():
+                try:
+                    time_module.sleep(self.heartbeat_interval)
+                    if self.is_connected and self.ws:
+                        # Send heartbeat/ping to keep connection alive
+                        try:
+                            # Some WebSocket implementations support ping
+                            self.ws.sock.ping()
+                            logger.debug("WebSocket heartbeat ping sent")
+                        except AttributeError:
+                            # Fallback: just log that we're still connected
+                            pass
+                except Exception as e:
+                    logger.debug(f"Heartbeat error (expected during shutdown): {e}")
+                    
+        self.heartbeat_thread = threading.Thread(target=heartbeat_loop, daemon=True)
+        self.heartbeat_thread.start()
+        logger.info("WebSocket heartbeat started")
+        
+    def _start_connection_monitor(self):
+        """Monitor connection health and reconnect if needed"""
+        def monitor_loop():
+            while not self._stop_heartbeat.is_set():
+                try:
+                    time_module.sleep(10)  # Check every 10 seconds
+                    if self.is_connected:
+                        now = time_module.time()
+                        # Check if we've received any message recently
+                        if self.last_message_time > 0 and (now - self.last_message_time) > self.tick_timeout:
+                            logger.warning(f"No message received for {int(now - self.last_message_time)}s, forcing reconnect")
+                            self._force_reconnect()
+                except Exception as e:
+                    logger.error(f"Connection monitor error: {e}")
+                    
+        self._connection_monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
+        self._connection_monitor_thread.start()
+        logger.info("Connection monitor started")
+        
+    def _force_reconnect(self):
+        """Force a reconnection of the WebSocket"""
+        try:
+            if self.ws:
+                self.ws.close()
+            self.is_connected = False
+            self._stop_heartbeat.set()
+            time_module.sleep(1)
+            self._attempt_reconnect()
+        except Exception as e:
+            logger.error(f"Error during forced reconnect: {e}")
+            
     def _attempt_reconnect(self):
-        """Attempt to reconnect WebSocket"""
+        """Attempt to reconnect WebSocket with exponential backoff"""
         if self.reconnect_attempts < self.max_reconnect_attempts:
             self.reconnect_attempts += 1
-            logger.info(f"Attempting to reconnect ({self.reconnect_attempts}/{self.max_reconnect_attempts})")
-            time_module.sleep(self.reconnect_delay)
+            # Exponential backoff: delay increases with each attempt
+            delay = min(self.reconnect_delay * (2 ** (self.reconnect_attempts - 1)), 60)
+            logger.info(f"Attempting to reconnect ({self.reconnect_attempts}/{self.max_reconnect_attempts}) after {delay}s")
+            time_module.sleep(delay)
             self.connect()
         else:
-            logger.error("Max reconnection attempts reached")
+            logger.error("Max reconnection attempts reached. Will retry in 5 minutes.")
+            # Reset after 5 minutes for cloud stability
+            time_module.sleep(300)
+            self.reconnect_attempts = 0
+            self._attempt_reconnect()
             
     def connect(self):
         """Connect to Fyers WebSocket"""
@@ -254,10 +364,15 @@ class FyersWebSocketFeed:
             self.is_connected = False
             
     def disconnect(self):
-        """Disconnect WebSocket"""
+        """Disconnect WebSocket cleanly"""
+        self._stop_heartbeat.set()
         if self.ws:
-            self.ws.close()
-            self.is_connected = False
+            try:
+                self.ws.close()
+            except Exception:
+                pass
+        self.is_connected = False
+        logger.info("WebSocket disconnected")
 
 class HistoricalDataBackfill:
     """Handles historical data backfill for strategy initialization"""
@@ -269,8 +384,7 @@ class HistoricalDataBackfill:
         """Get historical candles for backfill"""
         try:
             # Skip historical data for now - use live data only
-            logger.warning(f"Skipping historical data for {symbol} - using live data only")
-            return pd.DataFrame()
+            logger.info(f"Requesting historical data for {symbol} {timeframe}, count={count}")
             
             # Convert timeframe to Fyers format
             tf_mapping = {
@@ -281,7 +395,7 @@ class HistoricalDataBackfill:
             fyers_tf = tf_mapping.get(timeframe, timeframe)
             
             # Calculate start date
-            end_date = datetime.now()
+            end_date = datetime.now(IST)
             if timeframe == '1D':
                 start_date = end_date - timedelta(days=count)
             else:
@@ -305,7 +419,7 @@ class HistoricalDataBackfill:
             if response.get('s') == 'ok':
                 candles = response['candles']
                 df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-                df['date'] = pd.to_datetime(df['timestamp'], unit='s')
+                df['date'] = pd.to_datetime(df['timestamp'], unit='s', utc=True).dt.tz_convert(IST)
                 df = df[['date', 'open', 'high', 'low', 'close', 'volume']]
                 return df.tail(count)  # Return only requested count
             else:
@@ -323,11 +437,15 @@ class LiveDataFeed:
         self.config = config
         self.symbols = config['symbols']
         self.timeframes = config['timeframes']
+
+        token_raw = str(config.get('access_token') or '').strip()
+        if ':' in token_raw:
+            token_raw = token_raw.split(':', 1)[1]
         
         # Initialize Fyers client
         self.fyers_client = fyersModel.FyersModel(
             client_id=config['app_id'],
-            token=config['access_token'],
+            token=token_raw,
             log_path=config.get('log_path', '')
         )
         
@@ -361,22 +479,46 @@ class LiveDataFeed:
         
     def initialize(self):
         """Initialize data feed with historical backfill"""
-        logger.info("Initializing live data feed...")
-        
-        # Backfill historical data for all symbols and timeframes
-        for symbol in self.symbols:
+        logger.info("Initializing live data feed with historical backfill...")
+
+        for i, symbol in enumerate(self.symbols):
             for timeframe in self.timeframes:
-                df = self.backfill.get_historical_candles(symbol, timeframe, 200)
+                # Add delay to stay within Fyers API rate limits (10/sec)
+                # 60 symbols * 3 timeframes = 180 requests.
+                if i > 0:
+                    time_module.sleep(0.3)
+                
+                # Fetch with retry logic
+                df = pd.DataFrame()
+                for attempt in range(2):
+                    df = self.backfill.get_historical_candles(symbol, timeframe, 200)
+                    if not df.empty:
+                        break
+                    
+                    # If we hit rate limit or error, wait and retry once
+                    logger.warning(f"Backfill missing for {symbol} {timeframe}. Attempt {attempt+1} failed.")
+                    time_module.sleep(1.0)
+
                 if not df.empty:
                     # Load into candle manager
                     for _, row in df.iterrows():
-                        candle_data = {
-                            'timestamp': row['date'],
-                            'price': row['close'],
-                            'volume': row['volume']
-                        }
-                        self.ws_feed.candle_manager.update_tick(symbol, candle_data)
-                    logger.info(f"Backfilled {len(df)} candles for {symbol} {timeframe}")
+                        candle_time = row["date"]
+                        if hasattr(candle_time, "to_pydatetime"):
+                            candle_time = candle_time.to_pydatetime()
+                        price = float(row["close"])
+                        volume = int(row["volume"])
+                        self.ws_feed.candle_manager._update_candle(
+                            symbol,
+                            timeframe,
+                            candle_time,
+                            price,
+                            volume,
+                            trigger_callbacks=False,
+                        )
+                    logger.info(f"Loaded {len(df)} candles for {symbol} {timeframe}")
+                else:
+                    logger.error(f"❌ Failed to backfill {symbol} {timeframe}")
+
                     
     def start(self):
         """Start the live data feed"""
