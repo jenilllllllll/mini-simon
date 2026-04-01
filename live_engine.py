@@ -12,14 +12,25 @@ import threading
 import signal as signal_module
 import sys
 
+import pandas as pd
+
+import pytz
+
 from live_data_feed import LiveDataFeed
 from rest_data_feed import RestDataFeed
 from feature_engine import FeatureEngine
 from live_strategy_runner import LiveStrategyRunner
-from live_signal_aggregator import SignalAggregator, SignalConsolidator
+from live_signal_aggregator import (
+    AggregatedSignal,
+    SignalAggregator,
+    SignalConsolidator,
+)
 from signal_store import SignalStore
+from mcx_symbols import get_current_commodity_symbol
 
 logger = logging.getLogger(__name__)
+
+IST = pytz.timezone("Asia/Kolkata")
 
 class LiveEngine:
     """Master orchestrator for the real-time signal engine"""
@@ -28,6 +39,7 @@ class LiveEngine:
         self.config = config
         self.is_running = False
         self.shutdown_event = threading.Event()
+        self._last_processed_candle_ts: Dict[str, Dict[str, datetime]] = {}
         
         # Initialize components
         self.data_feed = None
@@ -72,11 +84,10 @@ class LiveEngine:
             self.signal_store = SignalStore(self.config.get('signal_store', {}))
             logger.info("Signal store initialized")
             
-            # Initialize data feed
-            self.data_feed = LiveDataFeed(self.config.get('data_feed', {}))
-            
-            # Register candle callback
-            self.data_feed.add_candle_callback(self._on_new_candle)
+            # Initialize data feed lazily in start() so we can choose between
+            # WebSocket and REST fallback paths without creating multiple
+            # instances.
+            self.data_feed = None
             
             logger.info("Live Engine initialized successfully")
             return True
@@ -94,7 +105,7 @@ class LiveEngine:
             try:
                 logger.info("Attempting WebSocket connection...")
                 self.data_feed = LiveDataFeed(self.config.get('data_feed', {}))
-                self.data_feed.add_callback(self._on_new_candle)
+                self.data_feed.add_candle_callback(self._on_new_candle)
                 self.data_feed.start()
                 
                 # Wait a bit to see if WebSocket connects
@@ -123,7 +134,7 @@ class LiveEngine:
                 logger.info("REST API data feed started")
             
             self.is_running = True
-            self.stats['start_time'] = datetime.now()
+            self.stats['start_time'] = datetime.now(IST)
             
             logger.info("Live Engine started successfully!")
             
@@ -170,6 +181,13 @@ class LiveEngine:
                         # Get historical data
                         df = self.data_feed.get_historical_candles(symbol, timeframe, count=100)
                         if not df.empty:
+                            # Actually store it in the data feed manager
+                            if hasattr(self.data_feed, 'add_historical_candles'):
+                                self.data_feed.add_historical_candles(symbol, timeframe, df)
+                            elif hasattr(self.data_feed, 'ws_feed') and hasattr(self.data_feed.ws_feed, 'candle_manager'):
+                                # For LiveDataFeed (WebSocket)
+                                pass # This is already handled inside LiveDataFeed.initialize()
+                                
                             logger.info(f"Loaded {len(df)} historical candles for {symbol} {timeframe}")
                         else:
                             logger.warning(f"No historical data available for {symbol} {timeframe}")
@@ -214,15 +232,37 @@ class LiveEngine:
     def _on_new_candle(self, symbol: str, timeframe: str, candle: dict):
         """Handle new candle formation"""
         try:
-            logger.debug(f"New candle: {symbol} {timeframe} at {candle['timestamp']}")
+            logger.info(f"Processing new {timeframe} candle for {symbol} at {candle['timestamp']}")
+
+            candle_ts = candle.get('timestamp')
+            if candle_ts is None:
+                return
+
+            # Avoid duplicate processing
+            last_tf_map = self._last_processed_candle_ts.setdefault(symbol, {})
+            last_ts = last_tf_map.get(timeframe)
+            if last_ts is not None and last_ts == candle_ts:
+                return
+            last_tf_map[timeframe] = candle_ts
             
             # Get recent data for analysis
             df = self.data_feed.get_candles(symbol, timeframe, count=200)
-            
-            if df.empty or len(df) < 50:
-                logger.warning(f"Insufficient data for {symbol} {timeframe}: {len(df)} bars")
+            if df.empty or len(df) < 20:  # Reduced from 50 to 20 for faster startup
+                logger.warning(f"Insufficient data for {symbol} {timeframe}: {len(df)} bars (need 20)")
                 return
-                
+
+            # The callback fires when a new candle bucket starts. Process the most recent *closed*
+            # candle by dropping the last bar if it matches the callback candle timestamp.
+            try:
+                if 'date' in df.columns and len(df) > 1:
+                    last_bar_ts = pd.to_datetime(df['date'].iloc[-1])
+                    if getattr(last_bar_ts, 'to_pydatetime', None):
+                        last_bar_ts = last_bar_ts.to_pydatetime()
+                    if last_bar_ts == candle_ts:
+                        df = df.iloc[:-1].copy()
+            except Exception:
+                pass
+
             # Calculate features
             df_with_features = self.feature_engine.calculate_all_features(df)
             
@@ -230,10 +270,51 @@ class LiveEngine:
             signals = self.strategy_runner.run_all_strategies(df_with_features, symbol, timeframe)
             
             if signals:
+                logger.info(f"Raw signals generated for {symbol} {timeframe}: {len(signals)}")
+            else:
+                # Log periodically to show engine is alive even without signals
+                if candle_ts.minute % 15 == 0:
+                    logger.info(f"Engine heartbeat: Watching {symbol} {timeframe} - No strategy signals (df length: {len(df)})")
+
+            # Only emit signals for the most recent closed candle.
+            # Use a robust timestamp comparison (ignoring microseconds)
+            if signals and 'date' in df_with_features.columns:
+                try:
+                    last_closed_ts = pd.to_datetime(df_with_features['date'].iloc[-1])
+                    if getattr(last_closed_ts, 'to_pydatetime', None):
+                        last_closed_ts = last_closed_ts.to_pydatetime()
+                    
+                    # Round last_closed_ts to nearest minute for robust matching
+                    match_ts = last_closed_ts.replace(second=0, microsecond=0)
+                    
+                    filtered_signals = []
+                    for s in signals:
+                        s_ts = getattr(s, 'timestamp', None)
+                        if s_ts:
+                            if hasattr(s_ts, 'to_pydatetime'):
+                                s_ts = s_ts.to_pydatetime()
+                            # Match if same minute
+                            if s_ts.replace(second=0, microsecond=0) == match_ts:
+                                filtered_signals.append(s)
+                    
+                    signals = filtered_signals
+                except Exception as e:
+                    logger.error(f"Error filtering signals by timestamp: {e}")
+            
+            if signals:
                 logger.info(f"Generated {len(signals)} signals for {symbol} {timeframe}")
                 
                 # Aggregate signals
-                aggregated_signals = self.signal_aggregator.aggregate_signals(signals, symbol)
+                is_mcx_symbol = symbol.startswith("MCX:")
+                original_min_conf = self.signal_aggregator.min_confidence_threshold
+                try:
+                    if is_mcx_symbol:
+                        self.signal_aggregator.min_confidence_threshold = 0.0
+
+                    aggregated_signals = self.signal_aggregator.aggregate_signals(signals, symbol)
+                finally:
+                    if is_mcx_symbol:
+                        self.signal_aggregator.min_confidence_threshold = original_min_conf
                 
                 if aggregated_signals:
                     logger.info(f"Aggregated to {len(aggregated_signals)} final signals for {symbol}")
@@ -242,7 +323,7 @@ class LiveEngine:
                     stored_count = self.signal_store.store_signals(aggregated_signals)
                     self.stats['signals_generated'] += len(aggregated_signals)
                     self.stats['signals_stored'] += stored_count
-                    self.stats['last_signal_time'] = datetime.now()
+                    self.stats['last_signal_time'] = datetime.now(IST)
                     
                     # Log signal details
                     for agg_signal in aggregated_signals:
@@ -257,7 +338,7 @@ class LiveEngine:
         """Process any pending signals or perform maintenance tasks"""
         try:
             # Periodic maintenance tasks
-            current_time = datetime.now()
+            current_time = datetime.now(IST)
             
             # Clean up old data every hour
             if current_time.minute == 0 and current_time.second < 5:
@@ -267,14 +348,14 @@ class LiveEngine:
             # Log statistics every 10 minutes
             if current_time.minute % 10 == 0 and current_time.second < 5:
                 self._log_statistics()
-                
+            
         except Exception as e:
             logger.error(f"Error in maintenance tasks: {e}")
             
     def _log_statistics(self):
         """Log current statistics"""
         try:
-            uptime = datetime.now() - self.stats['start_time'] if self.stats['start_time'] else timedelta(0)
+            uptime = datetime.now(IST) - self.stats['start_time'] if self.stats['start_time'] else timedelta(0)
             
             logger.info(f"Engine Stats - Uptime: {uptime}, "
                        f"Signals Generated: {self.stats['signals_generated']}, "
@@ -293,7 +374,7 @@ class LiveEngine:
         """Print final statistics on shutdown"""
         try:
             if self.stats['start_time']:
-                uptime = datetime.now() - self.stats['start_time']
+                uptime = datetime.now(IST) - self.stats['start_time']
                 logger.info(f"Final Stats - Total Uptime: {uptime}")
                 
             logger.info(f"Final Stats - Signals Generated: {self.stats['signals_generated']}")
@@ -309,7 +390,7 @@ class LiveEngine:
             status = {
                 'is_running': self.is_running,
                 'data_feed_connected': (hasattr(self.data_feed, 'is_connected') and self.data_feed.is_connected()) if self.data_feed else True,
-                'uptime': str(datetime.now() - self.stats['start_time']) if self.stats['start_time'] else '0:00:00',
+                'uptime': str(datetime.now(IST) - self.stats['start_time']) if self.stats['start_time'] else '0:00:00',
                 'statistics': self.stats.copy(),
                 'components': {
                     'data_feed': self.data_feed is not None,
@@ -333,8 +414,8 @@ class LiveEngine:
                 return []
                 
             # Get signals from last 24 hours
-            end_date = datetime.now().date()
-            start_date = end_date - timedelta(days=1)
+            end_date = datetime.now(IST).date()
+            start_date = end_date - timedelta(days=7)
             
             signals = self.signal_store.get_signals(
                 start_date=start_date,
@@ -365,7 +446,7 @@ class LiveEngine:
         """Run comprehensive health check"""
         try:
             health = {
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(IST).strftime('%d-%b-%Y %I:%M %p'),
                 'overall_status': 'healthy',
                 'checks': {}
             }
@@ -400,7 +481,7 @@ class LiveEngine:
                     
             # Check signal generation
             if self.stats['last_signal_time']:
-                time_since_last_signal = datetime.now() - self.stats['last_signal_time']
+                time_since_last_signal = datetime.now(IST) - self.stats['last_signal_time']
                 if time_since_last_signal > timedelta(hours=1):
                     health['checks']['signal_generation'] = {
                         'status': 'stale',
@@ -436,7 +517,7 @@ class LiveEngine:
         except Exception as e:
             logger.error(f"Error running health check: {e}")
             return {
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now(IST).strftime('%d-%b-%Y %I:%M %p'),
                 'overall_status': 'error',
                 'error': str(e)
             }
@@ -450,55 +531,40 @@ class EngineManager:
         self.engine_thread = None
         
     def _load_config(self, config_path: str = None) -> Dict:
-        """Load configuration from file or use defaults"""
-        default_config = {
-            'data_feed': {
-                'app_id': 'YOUR_APP_ID',
-                'access_token': 'YOUR_ACCESS_TOKEN',
-                'symbols': ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK'],
-                'timeframes': ['5m', '15m', '60m']
-            },
-            'feature_engine': {
-                'vwap_lookback': 20,
-                'volume_lookback': 20,
-                'spike_threshold': 2.0,
-                'swing_lookback': 5,
-                'strength_threshold': 2,
-                'imbalance_threshold': 0.6,
-                'atr_period': 14,
-                'fast_ma': 10,
-                'slow_ma': 20
-            },
-            'strategy_runner': {
-                'strategy_weights': {
-                    'vol_spike': 0.35,
-                    'body_imbalance': 0.25,
-                    'order_block': 0.25,
-                    'stock_burner': 0.15
-                },
-                'timeframe_weights': {
-                    '3m': 0.5, '5m': 0.6, '15m': 0.7,
-                    '60m': 1.0, '120m': 1.2, '180m': 1.3,
-                    '240m': 1.4, '1D': 1.6
-                }
-            },
-            'signal_aggregator': {
-                'min_confidence_threshold': 0.3,
-                'confluence_threshold': 2,
-                'max_signals_per_symbol': 3
-            },
-            'signal_store': {
-                'base_path': 'signals',
-                'enable_csv': True,
-                'enable_json': True,
-                'enable_db': False,
-                'daily_rotation': True
-            },
-            'cleanup_days': 30
-        }
-        
-        # TODO: Load from config file if provided
-        return default_config
+        """Load configuration from global config module"""
+        try:
+            from config import get_config
+            cfg = get_config()
+            
+            # Map Config object to the dictionary structure expected by LiveEngine
+            engine_config = {
+                'data_feed': cfg.get('data_feed', {}),
+                'feature_engine': cfg.get('feature_engine', {}),
+                'strategy_runner': cfg.get('strategy_runner', {}),
+                'signal_aggregator': cfg.get('signal_aggregator', {}),
+                'signal_store': cfg.get('signal_store', {}),
+                'cleanup_days': cfg.get('cleanup_days', 30)
+            }
+            
+            # Ensure critical thresholds are copied if not in sub-configs
+            if 'min_confidence_threshold' not in engine_config['signal_aggregator']:
+                engine_config['signal_aggregator']['min_confidence_threshold'] = cfg.get('signal_aggregator.min_confidence_threshold', 0.2)
+            
+            if 'confluence_threshold' not in engine_config['signal_aggregator']:
+                engine_config['signal_aggregator']['confluence_threshold'] = cfg.get('signal_aggregator.confluence_threshold', 1)
+
+            logger.info("Engine configuration loaded from config.py")
+            return engine_config
+            
+        except Exception as e:
+            logger.error(f"Error loading config from config.py: {e}. Using fallback defaults.")
+            # Fallback defaults if config.py fails
+            return {
+                'data_feed': {'symbols': [], 'timeframes': ['5m', '15m']},
+                'signal_aggregator': {'min_confidence_threshold': 0.2, 'confluence_threshold': 1},
+                'signal_store': {'base_path': 'signals', 'enable_json': True},
+                'cleanup_days': 30
+            }
         
     def start_engine(self) -> bool:
         """Start the engine in a separate thread"""
@@ -508,7 +574,12 @@ class EngineManager:
                 return False
                 
             self.engine = LiveEngine(self.config)
-            
+
+            if not self.engine.initialize():
+                logger.error("Engine initialization failed; not starting engine thread")
+                self.engine = None
+                return False
+
             # Start engine in separate thread
             self.engine_thread = threading.Thread(target=self.engine.start, daemon=True)
             self.engine_thread.start()

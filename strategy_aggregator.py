@@ -4,8 +4,12 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Tuple
 
+import pytz
+
 import numpy as np
 import pandas as pd
+
+IST = pytz.timezone("Asia/Kolkata")
 
 # =============================================================
 # Configuration
@@ -392,15 +396,15 @@ def aggregate_signals(df: pd.DataFrame, audit: Dict) -> pd.DataFrame:
         entry_df = ltf_df if not ltf_df.empty else htf_df
         entry_price = entry_df.sort_values("timestamp").iloc[-1]["price"] if not entry_df.empty else None
 
-        # Stop loss / target placeholders (since we lack structural data)
+        # Stop loss / target placeholders (1:3 risk-reward)
         stop_loss_level = None
         target_level = None
         if master_signal == "BUY" and entry_price is not None:
-            stop_loss_level = round(entry_price * 0.985, 2)  # crude 1.5% SL
-            target_level = round(entry_price * 1.015, 2)    # crude 1.5% target
+            stop_loss_level = round(entry_price * 0.99, 2)   # 1% SL
+            target_level = round(entry_price * 1.03, 2)     # 3% target (1:3 RR)
         elif master_signal == "SELL" and entry_price is not None:
-            stop_loss_level = round(entry_price * 1.015, 2)
-            target_level = round(entry_price * 0.985, 2)
+            stop_loss_level = round(entry_price * 1.01, 2)
+            target_level = round(entry_price * 0.97, 2)
 
         # Chart verification fields
         signal_timestamp = None
@@ -409,12 +413,12 @@ def aggregate_signals(df: pd.DataFrame, audit: Dict) -> pd.DataFrame:
         if not day_df.empty:
             # Pick row with highest absolute row_weight (most influential)
             anchor_row = day_df.loc[day_df["row_weight"].abs().idxmax()]
-            signal_timestamp = pd.to_datetime(anchor_row["timestamp"]).strftime("%Y-%m-%d %H:%M:%S")
+            signal_timestamp = pd.to_datetime(anchor_row["timestamp"]).strftime("%d-%b-%Y %I:%M %p")
             signal_timeframe = anchor_row["timeframe"]
             chart_anchor_price = anchor_row["price"]
 
         # Timestamp generated
-        timestamp_generated = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp_generated = datetime.now(IST).strftime("%d-%b-%Y %I:%M %p")
 
         summary_rows.append({
             "symbol": symbol,
@@ -443,7 +447,7 @@ def aggregate_signals(df: pd.DataFrame, audit: Dict) -> pd.DataFrame:
 
 def run_aggregation():
     audit: Dict[str, object] = {
-        "start_time": datetime.now().isoformat(),
+        "start_time": datetime.now(IST).strftime('%d-%b-%Y %I:%M %p'),
         "input_files": {},
         "output": {},
     }
@@ -471,11 +475,11 @@ def run_aggregation():
 
     final_df = aggregate_signals(big_df, audit)
 
-    csv_path = OUTPUT_DIR / f"final_scan_execution_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    csv_path = OUTPUT_DIR / f"final_scan_execution_{datetime.now(IST).strftime('%Y%m%d_%H%M%S')}.csv"
     final_df.to_csv(csv_path, index=False)
 
     audit.setdefault("output", {})["csv"] = str(csv_path)
-    audit["end_time"] = datetime.now().isoformat()
+    audit["end_time"] = datetime.now(IST).strftime('%d-%b-%Y %I:%M %p')
     audit_path = OUTPUT_DIR / "final_scan_audit.json"
     with open(audit_path, "w") as f:
         json.dump(audit, f, indent=2)

@@ -1,4 +1,4 @@
-# Mini Simon - PythonAnywhere Optimized Requirements
+# Mini Simon - Fly.io Optimized Requirements
 # Generated for Linux-based server environment
 # Install with: pip install -r requirements.txt
 

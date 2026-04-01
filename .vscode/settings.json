@@ -1,0 +1,10 @@
+{
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}",
+        "${workspaceFolder}/.venv/Lib/site-packages"
+    ],
+    "python.analysis.autoImportCompletions": true,
+    "python.languageServer": "None",
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.useLibraryCodeForTypes": true
+}

@@ -11,7 +11,7 @@ This will automatically:
 3. Get auth code
 4. Generate access token
 5. Update .env file
-6. Optionally restart PythonAnywhere web app
+6. Optionally update Fly.io secrets
 
 Requirements:
     pip install selenium pyotp webdriver-manager

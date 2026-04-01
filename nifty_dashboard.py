@@ -838,39 +838,93 @@ def render_live_tab() -> None:
         # Operational log card
         with st.container():
             st.markdown('<div class="card">', unsafe_allow_html=True)
-            st.markdown("#### Operational Log")
+            st.markdown("#### Trade Log History")
 
-            trades = get_trades_with_pnl_snapshot()
-            symbol_trades = [
-                t
-                for t in trades
-                if t.get("symbol") == symbol_code or t.get("instrument") == selected_symbol
-            ]
+            all_trades = get_trades_with_pnl_snapshot()
+            
+            if all_trades:
+                # Format trades for display
+                display_trades = []
+                for idx, t in enumerate(reversed(all_trades), 1):
+                    entry_time = t.get("entry_time")
+                    exit_time = t.get("exit_time")
+                    
+                    # Formatting times to IST strings if they are datetime objects
+                    if isinstance(entry_time, datetime):
+                        entry_time_str = entry_time.strftime("%d-%b-%Y %I:%M %p")
+                    else:
+                        entry_time_str = str(entry_time or "")
+                        
+                    if isinstance(exit_time, datetime):
+                        exit_time_str = exit_time.strftime("%d-%b-%Y %I:%M %p")
+                    else:
+                        exit_time_str = str(exit_time or "")
 
-            if symbol_trades:
-                df_log = pd.DataFrame(symbol_trades)
-                for col in ["entry_time", "exit_time"]:
-                    if col in df_log.columns:
-                        df_log[col] = df_log[col].astype(str)
+                    display_trades.append({
+                        "Trade ID (Sr. No.)": idx,
+                        "Symbol": t.get("display_symbol") or t.get("symbol") or "",
+                        "Direction": t.get("direction") or "",
+                        "Timeframe": t.get("timeframe") or "",
+                        "Entry Price": t.get("entry_price") or "",
+                        "Entry Time (IST)": entry_time_str,
+                        "Exit Price": t.get("exit_price") or "",
+                        "Exit Timing (IST)": exit_time_str,
+                        "Points Captured": t.get("pnl_points") or t.get("points") or 0.0,
+                        "Reason for Trade": t.get("reason") or t.get("strategy") or "",
+                        "Outcome": t.get("outcome") or ("TGT Hit" if "Target" in str(t.get("close_reason", "")) else "SL Hit" if "Stop" in str(t.get("close_reason", "")) else "")
+                    })
 
-                df_log = df_log.sort_values(by="entry_time", ascending=False)
-                st.dataframe(df_log, use_container_width=True, height=220)
+                df_log = pd.DataFrame(display_trades)
+                st.dataframe(df_log, use_container_width=True, height=400)
 
-                csv = df_log.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    label="Download Operational Log CSV",
-                    data=csv,
-                    file_name="operational_log.csv",
-                    mime="text/csv",
-                    key="operational_log_download",
-                )
+                # Export buttons
+                col_exp1, col_exp2 = st.columns(2)
+                with col_exp1:
+                    csv = df_log.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        label="Export as CSV",
+                        data=csv,
+                        file_name=f"trade_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        key="csv_download",
+                    )
+                with col_exp2:
+                    # For Excel export, we'd need openpyxl, using CSV as primary for now per standard streamlit
+                    pass
             else:
-                st.info("No simulated trades yet for this instrument.")
+                st.info("No paper trades recorded yet.")
 
             st.markdown("</div>", unsafe_allow_html=True)
 
     # Right: Live Signals + Execution panel + Position summary
     with col_right:
+        # Paper Trading PNL Summary (Top of Right Column for visibility)
+        with st.container():
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.markdown("#### Paper Trading Summary")
+            
+            all_trades = get_trades_with_pnl_snapshot()
+            closed_trades = [t for t in all_trades if t.get("status") == "CLOSED"]
+            open_trades = [t for t in all_trades if t.get("status") == "OPEN"]
+            
+            total_count = len(all_trades)
+            win_count = len([t for t in closed_trades if t.get("outcome") == "TGT Hit"])
+            loss_count = len([t for t in closed_trades if t.get("outcome") == "SL Hit"])
+            win_rate = (win_count / len(closed_trades) * 100) if closed_trades else 0.0
+            total_net_pnl = sum(float(t.get("pnl", 0.0)) for t in all_trades)
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown(f'<div class="kpi-label">Total Trades</div><div class="kpi-value">{total_count}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="kpi-label">Win Rate</div><div class="kpi-value">{win_rate:.1f}%</div>', unsafe_allow_html=True)
+            with c2:
+                pnl_class = "kpi-green" if total_net_pnl >= 0 else "kpi-red"
+                st.markdown(f'<div class="kpi-label">Net P&L (INR)</div><div class="kpi-value {pnl_class}">{total_net_pnl:,.2f}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="kpi-label">Win / Loss</div><div class="kpi-value">{win_count} / {loss_count}</div>', unsafe_allow_html=True)
+            
+            st.markdown(f'<div class="kpi-label">Active Positions</div><div class="kpi-value">{len(open_trades)}</div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
         # Live signals card
         with st.container():
             st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -882,41 +936,42 @@ def render_live_tab() -> None:
             else:
                 engine_signals: List[Dict[str, Any]] = []
                 try:
-                    engine_signals = manager.get_signals(limit=50) or []
+                    engine_signals = manager.get_signals(limit=100) or []
                 except Exception as e:
                     st.error(f"Error fetching engine signals: {e}")
 
                 if engine_signals:
+                    # New columns: Sr. No., Generation Time (IST), Symbol, Direction (Buy/Sell), Timeframe, Entry Price, Stoploss, Target Price, Reason for Trade.
                     df_sig = pd.DataFrame(engine_signals)
-
-                    # Try to filter to the selected symbol if symbol column exists
-                    symbol_cols = [c for c in df_sig.columns if c.lower() in {"symbol", "instrument"}]
-                    if symbol_cols:
-                        sym_col = symbol_cols[0]
-                        df_sig = df_sig[df_sig[sym_col] == symbol_code]
-
-                    # Show only the most relevant columns if present
-                    preferred_cols = [
-                        "signal_timestamp",
-                        "symbol",
-                        "timeframe",
-                        "action",
-                        "direction",
-                        "confidence",
-                        "strategy_name",
-                    ]
-                    cols_to_show = [c for c in preferred_cols if c in df_sig.columns]
+                    
+                    # Formatting
+                    df_sig["Sr. No."] = range(1, len(df_sig) + 1)
+                    if "timestamp_generated" in df_sig.columns:
+                        df_sig["Generation Time (IST)"] = df_sig["timestamp_generated"]
+                    elif "signal_timestamp" in df_sig.columns:
+                        df_sig["Generation Time (IST)"] = df_sig["signal_timestamp"]
+                    
+                    if "action" in df_sig.columns:
+                        df_sig["Direction (Buy/Sell)"] = df_sig["action"].str.upper()
+                    
+                    # Map columns
+                    col_map = {
+                        "symbol": "Symbol",
+                        "timeframe": "Timeframe",
+                        "entry_price": "Entry Price",
+                        "stop_loss_level": "Stoploss",
+                        "target_level": "Target Price",
+                        "strategy_name": "Reason for Trade"
+                    }
+                    df_sig = df_sig.rename(columns={k: v for k, v in col_map.items() if k in df_sig.columns})
+                    
+                    display_cols = ["Sr. No.", "Generation Time (IST)", "Symbol", "Direction (Buy/Sell)", "Timeframe", "Entry Price", "Stoploss", "Target Price", "Reason for Trade"]
+                    cols_to_show = [c for c in display_cols if c in df_sig.columns]
+                    
                     if cols_to_show:
-                        df_sig = df_sig[cols_to_show]
-
-                    for col in df_sig.columns:
-                        if "time" in col.lower():
-                            df_sig[col] = df_sig[col].astype(str)
-
-                    if df_sig.empty:
-                        st.info("No recent engine signals for this instrument.")
+                        st.dataframe(df_sig[cols_to_show], use_container_width=True, height=300)
                     else:
-                        st.dataframe(df_sig, use_container_width=True, height=220)
+                        st.dataframe(df_sig, use_container_width=True, height=300)
                 else:
                     st.info("No engine signals available yet.")
 
@@ -976,7 +1031,7 @@ def render_live_tab() -> None:
                 df_all = pd.DataFrame(trades_all)
                 for col in ["entry_time", "exit_time"]:
                     if col in df_all.columns:
-                        df_all[col] = df_all[col].astype(str)
+                        df_all[col] = pd.to_datetime(df_all[col], errors='coerce').dt.strftime('%d-%b-%Y %I:%M %p')
                 csv_all = df_all.to_csv(index=False).encode("utf-8")
                 st.download_button(
                     label="SAVE CSV",
@@ -1054,7 +1109,7 @@ def render_trades_tab() -> None:
         df = pd.DataFrame(trades)
         for col in ["entry_time", "exit_time"]:
             if col in df.columns:
-                df[col] = df[col].astype(str)
+                df[col] = pd.to_datetime(df[col], errors='coerce').dt.strftime('%d-%b-%Y %I:%M %p')
 
         df = df.sort_values(by="entry_time", ascending=False)
         st.dataframe(df, use_container_width=True, height=400)
@@ -1143,7 +1198,7 @@ def render_backtest_tab() -> None:
         show_df = trades_df.copy()
         for col in ["entry_time", "exit_time"]:
             if col in show_df.columns:
-                show_df[col] = show_df[col].astype(str)
+                show_df[col] = pd.to_datetime(show_df[col], errors='coerce').dt.strftime('%d-%b-%Y %I:%M %p')
 
         st.dataframe(show_df, use_container_width=True, height=400)
 
@@ -1188,7 +1243,7 @@ def render_signals_tab() -> None:
             df_engine = pd.DataFrame(engine_signals)
             for col in ["signal_timestamp", "timestamp_generated"]:
                 if col in df_engine.columns:
-                    df_engine[col] = df_engine[col].astype(str)
+                    df_engine[col] = pd.to_datetime(df_engine[col], errors='coerce').dt.strftime('%d-%b-%Y %I:%M %p')
 
             st.dataframe(df_engine, use_container_width=True, height=350)
 

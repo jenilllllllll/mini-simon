@@ -12,9 +12,13 @@ from collections import defaultdict, Counter
 from dataclasses import dataclass
 import json
 
+import pytz
+
 from live_strategy_runner import StrategySignal
 
 logger = logging.getLogger(__name__)
+
+IST = pytz.timezone("Asia/Kolkata")
 
 @dataclass
 class AggregatedSignal:
@@ -47,10 +51,10 @@ class AggregatedSignal:
             'entry_price': self.entry_price,
             'stop_loss_level': self.stop_loss_level,
             'target_level': self.target_level,
-            'signal_timestamp': self.signal_timestamp.isoformat(),
+            'signal_timestamp': self.signal_timestamp.strftime('%d-%b-%Y %I:%M %p'),
             'signal_timeframe': self.signal_timeframe,
             'chart_anchor_price': self.chart_anchor_price,
-            'timestamp_generated': self.timestamp_generated.isoformat(),
+            'timestamp_generated': self.timestamp_generated.strftime('%d-%b-%Y %I:%M %p'),
             'aggregated_confidence': self.aggregated_confidence,
             'final_action': self.final_action,
             'contributing_strategies': self.contributing_strategies,
@@ -83,7 +87,7 @@ class SignalAggregator:
         })
         
         # Aggregation settings
-        self.min_confidence_threshold = self.config.get('min_confidence_threshold', 0.3)
+        self.min_confidence_threshold = self.config.get('min_confidence_threshold', 0.5)
         self.confluence_threshold = self.config.get('confluence_threshold', 2)  # Minimum strategies to agree
         self.max_signals_per_symbol = self.config.get('max_signals_per_symbol', 3)
         
@@ -195,7 +199,7 @@ class SignalAggregator:
                 signal_timestamp=latest_timestamp,
                 signal_timeframe=self._get_primary_timeframe(signals),
                 chart_anchor_price=anchor_price,
-                timestamp_generated=datetime.now(),
+                timestamp_generated=datetime.now(IST),
                 aggregated_confidence=aggregated_confidence,
                 final_action=final_action,
                 contributing_strategies=strategies,
@@ -270,7 +274,7 @@ class SignalAggregator:
         """Check if signal is duplicate of recent signals"""
         try:
             recent_signals = self.recent_signals[signal.symbol]
-            current_time = datetime.now()
+            current_time = datetime.now(IST)
             
             # Clean old signals
             self.recent_signals[signal.symbol] = [
@@ -281,7 +285,7 @@ class SignalAggregator:
             # Check for similar recent signals
             for recent in self.recent_signals[signal.symbol]:
                 if (recent['action'] == signal.action and
-                    abs(recent['entry_price'] - signal.entry_price) / signal.entry_price < 0.01):  # 1% tolerance
+                    abs(recent['entry_price'] - signal.entry_price) / signal.entry_price < 0.02):  # 2% tolerance
                     return True
                     
             # Add current signal to recent
@@ -368,7 +372,7 @@ class SignalConsolidator:
             'average_confidence': np.mean([s.aggregated_confidence for s in self.consolidated_signals]),
             'top_symbols': list(set(s.symbol for s in self.consolidated_signals[:10])),
             'top_strategies': list(set(s for signal in self.consolidated_signals for s in signal.contributing_strategies)),
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now(IST).strftime('%d-%b-%Y %I:%M %p')
         }
         
         return overview

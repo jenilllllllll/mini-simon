@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Backtesting Terminal - Mini-Simon</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+    <div class="app-shell">
+        <header class="top-bar">
+            <div class="logo-block">
+                <div class="logo-dot"></div>
+                <div>
+                    <div class="logo-title">Mini-Simon</div>
+                    <div class="logo-sub">Backtesting Terminal</div>
+                </div>
+            </div>
+            <div class="top-bar-right">
+                <div class="chart-tabs">
+                    <button id="liveDashboardBtn" class="chart-tab" type="button">Live Dashboard</button>
+                    <button class="chart-tab chart-tab-active" type="button">Analytics &amp; Backtesting</button>
+                </div>
+                <div class="status-chip status-ok" id="statusChip">
+                    <span class="status-dot"></span>
+                    <span id="statusText">Ready</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="terminal-main">
+            <section class="terminal-grid" style="display: grid; grid-template-columns: 0.35fr 0.65fr; gap: 12px; align-items: stretch;">
+                <div class="terminal-col terminal-col-left">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div class="panel-title">Backtest Controls</div>
+                            <div class="panel-meta" id="jobMeta">--</div>
+                        </div>
+                        <div class="panel-body" style="display:flex; flex-direction:column; gap:10px;">
+                            <div style="display:grid; grid-template-columns: 1fr; gap:8px;">
+                                <label>
+                                    <div class="kpi-label">Segment</div>
+                                    <select id="segmentSelect" class="mode-btn" style="width:100%; padding:10px;">
+                                        <option value="EQUITY">EQUITY</option>
+                                        <option value="MCX">MCX</option>
+                                    </select>
+                                </label>
+
+                                <label>
+                                    <div class="kpi-label">Symbol</div>
+                                    <select id="symbolSelect" class="mode-btn" style="width:100%; padding:10px;"></select>
+                                </label>
+
+                                <label>
+                                    <div class="kpi-label">Timeframe</div>
+                                    <select id="timeframeSelect" class="mode-btn" style="width:100%; padding:10px;">
+                                        <option value="ALL">All Timeframes</option>
+                                        <option value="1m">1m</option>
+                                        <option value="3m">3m</option>
+                                        <option value="15m">15m</option>
+                                        <option value="30m">30m</option>
+                                        <option value="1h">1h</option>
+                                        <option value="2h">2h</option>
+                                        <option value="4h">4h</option>
+                                        <option value="1d">1d</option>
+                                    </select>
+                                </label>
+
+                                <label>
+                                    <div class="kpi-label">Strategy</div>
+                                    <select id="strategySelect" class="mode-btn" style="width:100%; padding:10px;"></select>
+                                </label>
+
+                                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+                                    <label>
+                                        <div class="kpi-label">From</div>
+                                        <input id="fromDate" type="date" class="mode-btn" style="width:100%; padding:10px;" />
+                                    </label>
+                                    <label>
+                                        <div class="kpi-label">To</div>
+                                        <input id="toDate" type="date" class="mode-btn" style="width:100%; padding:10px;" />
+                                    </label>
+                                </div>
+
+                                <button id="runBacktestBtn" class="mode-btn mode-btn-active" type="button" style="width:100%; padding:12px;">Run Backtest</button>
+
+                                <div style="height:10px; background:#1a2332; border-radius:6px; overflow:hidden;">
+                                    <div id="progressBar" style="height:10px; width:0%; background:#3b82f6;"></div>
+                                </div>
+                                <div class="panel-meta" id="progressText">Idle</div>
+
+                                <a id="downloadLink" href="#" class="mode-btn" style="display:none; text-align:center; padding:12px; text-decoration:none;">Download XLSX</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="terminal-col terminal-col-center">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div class="panel-title">Summary</div>
+                            <div class="panel-meta" id="summaryMeta">--</div>
+                        </div>
+                        <div class="panel-body">
+                            <div class="table-wrapper">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Total Trades</th>
+                                            <th>Wins</th>
+                                            <th>Losses</th>
+                                            <th>Win Rate %</th>
+                                            <th>Profit Factor</th>
+                                            <th>Total Profit</th>
+                                            <th>Max DD</th>
+                                            <th>Profitable?</th>
+                                            <th>Reliability</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="summaryBody">
+                                        <tr>
+                                            <td colspan="9">Run a backtest to see results.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panel" style="margin-top: 8px;">
+                        <div class="panel-header">
+                            <div class="panel-title">Trade Log (Preview)</div>
+                            <div class="panel-meta" id="tradesMeta">--</div>
+                        </div>
+                        <div class="panel-body">
+                            <div class="table-wrapper">
+                                <table class="data-table">
+                                    <thead id="tradesHead"></thead>
+                                    <tbody id="tradesBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        const NIFTY_50 = {{ nifty50 | tojson }};
+        const MCX = {{ mcx | tojson }};
+        const STRATEGIES = {{ strategies | tojson }};
+
+        const segmentSelect = document.getElementById('segmentSelect');
+        const symbolSelect = document.getElementById('symbolSelect');
+        const timeframeSelect = document.getElementById('timeframeSelect');
+        const strategySelect = document.getElementById('strategySelect');
+        const fromDate = document.getElementById('fromDate');
+        const toDate = document.getElementById('toDate');
+        const runBtn = document.getElementById('runBacktestBtn');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        const downloadLink = document.getElementById('downloadLink');
+        const summaryBody = document.getElementById('summaryBody');
+        const tradesHead = document.getElementById('tradesHead');
+        const tradesBody = document.getElementById('tradesBody');
+        const jobMeta = document.getElementById('jobMeta');
+
+        document.getElementById('liveDashboardBtn').addEventListener('click', () => {
+            window.location.href = '/';
+        });
+
+        function fillStrategies() {
+            strategySelect.innerHTML = '';
+            const all = document.createElement('option');
+            all.value = 'ALL';
+            all.textContent = 'All Strategies';
+            strategySelect.appendChild(all);
+            STRATEGIES.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s;
+                opt.textContent = s;
+                strategySelect.appendChild(opt);
+            });
+        }
+
+        function fillSymbols() {
+            const seg = segmentSelect.value;
+            symbolSelect.innerHTML = '';
+
+            const allOpt = document.createElement('option');
+            allOpt.value = 'ALL';
+            allOpt.textContent = 'All Symbols';
+            symbolSelect.appendChild(allOpt);
+
+            const list = seg === 'EQUITY' ? NIFTY_50 : MCX;
+            list.forEach(sym => {
+                const opt = document.createElement('option');
+                opt.value = sym;
+                opt.textContent = sym;
+                symbolSelect.appendChild(opt);
+            });
+        }
+
+        segmentSelect.addEventListener('change', fillSymbols);
+
+        function setProgress(pct, text) {
+            const p = Math.max(0, Math.min(100, Number(pct || 0)));
+            progressBar.style.width = `${p}%`;
+            progressText.textContent = text || '';
+        }
+
+        function renderSummary(summary) {
+            summaryBody.innerHTML = '';
+            if (!summary) {
+                summaryBody.innerHTML = '<tr><td colspan="9">No summary.</td></tr>';
+                return;
+            }
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${summary.total_trades ?? ''}</td>
+                <td>${summary.total_wins ?? ''}</td>
+                <td>${summary.total_losses ?? ''}</td>
+                <td>${summary.win_rate_pct ?? ''}</td>
+                <td>${summary.profit_factor ?? ''}</td>
+                <td>${summary.total_profit_inr ?? ''}</td>
+                <td>${summary.max_drawdown ?? ''}</td>
+                <td>${summary.is_profitable ?? ''}</td>
+                <td>${summary.setup_reliability_score ?? ''}</td>
+            `;
+            summaryBody.appendChild(tr);
+        }
+
+        function renderTrades(trades) {
+            tradesHead.innerHTML = '';
+            tradesBody.innerHTML = '';
+
+            const cols = ['Status', 'Direction', 'Entry Price', 'Entry Time', 'Exit Price', 'Exit Time', 'Stoploss', 'Target', 'Points Captured (Real)', 'Unrealized P&L', 'Result', 'Trade Duration'];
+            const trh = document.createElement('tr');
+            cols.forEach(c => {
+                const th = document.createElement('th');
+                th.textContent = c;
+                trh.appendChild(th);
+            });
+            tradesHead.appendChild(trh);
+
+            const list = Array.isArray(trades) ? trades : [];
+            if (!list.length) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td colspan="${cols.length}">No trades.</td>`;
+                tradesBody.appendChild(tr);
+                return;
+            }
+
+            list.slice(0, 50).forEach(t => {
+                const is_open = t['Status'] === 'OPEN';
+                const exit_time_str = is_open ? 'LIVE / OPEN' : (t['Exit Time'] ?? '');
+                const exit_price_str = is_open ? `(${t['Exit Price'] ?? ''})` : (t['Exit Price'] ?? '');
+                const real_points = !is_open ? (t['Points Captured'] ?? '') : '';
+                const unreal_points = is_open ? (t['Unrealized P&L'] ?? t['Points Captured'] ?? '') : '';
+                
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${t['Status'] ?? 'CLOSED'}</td>
+                    <td>${t['Direction'] ?? ''}</td>
+                    <td>${t['Entry Price'] ?? ''}</td>
+                    <td>${t['Entry Time'] ?? ''}</td>
+                    <td>${exit_price_str}</td>
+                    <td>${exit_time_str}</td>
+                    <td>${t['Stoploss'] ?? ''}</td>
+                    <td>${t['Target'] ?? ''}</td>
+                    <td>${real_points}</td>
+                    <td>${unreal_points}</td>
+                    <td>${t['Result'] ?? ''}</td>
+                    <td>${t['Trade Duration'] ?? ''}</td>
+                `;
+                tradesBody.appendChild(tr);
+            });
+        }
+
+        async function fetchJSON(url, opts) {
+            try {
+                const res = await fetch(url, opts);
+                if (!res.ok) {
+                    const txt = await res.text();
+                    throw new Error(txt || res.statusText);
+                }
+                return await res.json();
+            } catch (e) {
+                console.error('Fetch error', url, e);
+                return null;
+            }
+        }
+
+        let activeJobId = null;
+        let pollTimer = null;
+
+        async function pollJob() {
+            if (!activeJobId) return;
+            const data = await fetchJSON(`/api/backtest/status/${activeJobId}`);
+            if (!data) return;
+
+            setProgress(data.progress_pct, data.message);
+            jobMeta.textContent = data.status;
+
+            if (data.status === 'completed') {
+                renderSummary(data.summary);
+                renderTrades(data.trade_preview);
+                downloadLink.style.display = 'block';
+                downloadLink.href = `/api/backtest/download/${activeJobId}`;
+                downloadLink.target = '_blank';
+                if (pollTimer) {
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                }
+            }
+
+            if (data.status === 'failed') {
+                downloadLink.style.display = 'none';
+                if (pollTimer) {
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                }
+            }
+        }
+
+        runBtn.addEventListener('click', async () => {
+            downloadLink.style.display = 'none';
+            renderSummary(null);
+            renderTrades([]);
+            setProgress(0, 'Starting...');
+
+            const payload = {
+                segment: segmentSelect.value,
+                symbol: symbolSelect.value,
+                timeframe: timeframeSelect.value,
+                strategy: strategySelect.value,
+                date_from: fromDate.value,
+                date_to: toDate.value
+            };
+
+            const resp = await fetchJSON('/api/backtest/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!resp || !resp.job_id) {
+                setProgress(0, 'Failed to start job');
+                return;
+            }
+
+            activeJobId = resp.job_id;
+            jobMeta.textContent = 'running';
+
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = setInterval(pollJob, 600);
+            await pollJob();
+        });
+
+        fillStrategies();
+        fillSymbols();
+
+        const today = new Date();
+        const toStr = today.toISOString().slice(0,10);
+        const from = new Date(today.getTime() - 14 * 86400000);
+        const fromStr = from.toISOString().slice(0,10);
+        fromDate.value = fromStr;
+        toDate.value = toStr;
+    </script>
+</body>
+</html>

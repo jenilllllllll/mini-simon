@@ -315,6 +315,9 @@ class TrendFeatures(FeatureCalculator):
         df['ma_fast'] = df['close'].rolling(window=self.fast_ma).mean()
         df['ma_slow'] = df['close'].rolling(window=self.slow_ma).mean()
         
+        # EMA 5 for scalping strategies
+        df['ema_5'] = df['close'].ewm(span=5, adjust=False).mean()
+        
         # Trend direction
         df['trend_up'] = df['ma_fast'] > df['ma_slow']
         df['trend_down'] = df['ma_fast'] < df['ma_slow']

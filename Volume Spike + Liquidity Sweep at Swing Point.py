@@ -39,7 +39,7 @@ def run_strategy_backtest(df):
     Executes the backtest for the given data.
     
     !!! IMPORTANT !!!
-    This function contains a DUMMY placeholder strategy.
+    This function contains placeholder strategy logic.
     You need to REPLACE this with your actual "Volume Spike + Liquidity Sweep" logic.
     
     The function must return a DataFrame representing the trade log.
@@ -52,6 +52,7 @@ def run_strategy_backtest(df):
                       ['entry_time', 'exit_time', 'direction', 'entry_price', 'exit_price']
     """
     # Placeholder Logic: Buy on a bullish candle if the previous was bearish. Exit after 5 bars.
+    # This is basic placeholder logic - replace with actual Volume Spike + Liquidity Sweep strategy
     trades = []
     in_trade = False
     exit_bar_index = 0

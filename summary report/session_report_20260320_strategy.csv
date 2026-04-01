@@ -1,0 +1,8 @@
+strategy,total_trades,wins,losses,win_rate_pct,gross_pnl,total_brokerage,net_pnl,avg_rr_ratio,avg_hold_seconds,buy_trades,buy_win_rate_pct,sell_trades,sell_win_rate_pct,zero_second_trades,blocked_trades,status
+stock_burner,0,0,0,0.0,0,0,0,0.0,0.0,0,0.0,0,0.0,0,0,NO SIGNAL
+vol_spike,0,0,0,0.0,0,0,0,0.0,0.0,0,0.0,0,0.0,0,0,NO SIGNAL
+order_block,0,0,0,0.0,0,0,0,0.0,0.0,0,0.0,0,0.0,0,0,NO SIGNAL
+body_imbalance,0,0,0,0.0,0,0,0,0.0,0.0,0,0.0,0,0.0,0,0,NO SIGNAL
+smc_liquidity_trap,0,0,0,0.0,0,0,0,0.0,0.0,0,0.0,0,0.0,0,0,NO SIGNAL
+ema_scalping_5,1,1,0,100.0,100.0,0.0,-602.44,3.0,0.0,0,0.0,1,100.0,1,0,MONITOR
+ema_crossover_5_20,0,0,0,0.0,0,0,0,0.0,0.0,0,0.0,0,0.0,0,0,NO SIGNAL

@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Trade History &amp; PnL - Mini-Simon</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <style>
+        .filter-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1.4fr;
+            gap: 10px;
+        }
+        .filter-row input, .filter-row select {
+            width: 100%;
+            padding: 10px;
+        }
+        .kpi-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .positive { color: #22c55e; }
+        .negative { color: #f97373; }
+        .mono { font-variant-numeric: tabular-nums; }
+        @media (max-width: 960px) {
+            .filter-row { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-shell">
+        <header class="top-bar">
+            <div class="logo-block">
+                <div class="logo-dot"></div>
+                <div>
+                    <div class="logo-title">Mini-Simon</div>
+                    <div class="logo-sub">Trade History &amp; P&amp;L</div>
+                </div>
+            </div>
+            <div class="top-bar-right">
+                <div class="chart-tabs">
+                    <button id="liveDashboardBtn" class="chart-tab" type="button">Live Dashboard</button>
+                    <button class="chart-tab chart-tab-active" type="button">Trade History</button>
+                </div>
+                <div class="status-chip status-ok" id="statusChip">
+                    <span class="status-dot"></span>
+                    <span id="statusText">Ready</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="terminal-main">
+            <section class="kpi-row">
+                <div class="kpi-card">
+                    <div class="kpi-label">Total Trades</div>
+                    <div class="kpi-value" id="sumTotalTrades">0</div>
+                    <div class="kpi-sub">All trades loaded</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Win Rate %</div>
+                    <div class="kpi-value" id="sumWinRate">0.00</div>
+                    <div class="kpi-sub">Closed trades only</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Total P&amp;L</div>
+                    <div class="kpi-value mono" id="sumTotalPnl">0.00</div>
+                    <div class="kpi-sub">Realized + open estimate</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Winning / Losing</div>
+                    <div class="kpi-value" id="sumWinLose">0 / 0</div>
+                    <div class="kpi-sub">Closed trade outcomes</div>
+                </div>
+            </section>
+
+            <section class="terminal-grid" style="display:grid; grid-template-columns: 1fr; gap: 12px; align-items: stretch;">
+                <div class="terminal-col terminal-col-center">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div class="panel-title">Filters</div>
+                            <div class="panel-meta" id="filtersMeta">--</div>
+                        </div>
+                        <div class="panel-body">
+                            <div class="filter-row">
+                                <label>
+                                    <div class="kpi-label">Symbol</div>
+                                    <select id="filterSymbol" class="mode-btn"></select>
+                                </label>
+                                <label>
+                                    <div class="kpi-label">Timeframe</div>
+                                    <select id="filterTimeframe" class="mode-btn"></select>
+                                </label>
+                                <label>
+                                    <div class="kpi-label">Session</div>
+                                    <select id="filterSession" class="mode-btn"></select>
+                                </label>
+                                <label>
+                                    <div class="kpi-label">Search (reason, strategy, trade_id)</div>
+                                    <input id="filterSearch" class="mode-btn" type="text" placeholder="e.g. StopLoss / StrategyX / 123" />
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panel" style="margin-top: 8px;">
+                        <div class="panel-header">
+                            <div class="panel-title">Trade History</div>
+                            <div class="panel-meta" id="historyMeta">--</div>
+                        </div>
+                        <div class="panel-body">
+                            <div class="table-wrapper" style="max-height: 520px;">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Symbol</th>
+                                            <th>Dir</th>
+                                            <th>Entry</th>
+                                            <th>Exit</th>
+                                            <th>P&amp;L</th>
+                                            <th>P&amp;L %</th>
+                                            <th>Entry Time</th>
+                                            <th>Exit Time</th>
+                                            <th>TF</th>
+                                            <th>Strategy</th>
+                                            <th>Session</th>
+                                            <th>Reason</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="historyTbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        const sumTotalTrades = document.getElementById('sumTotalTrades');
+        const sumWinRate = document.getElementById('sumWinRate');
+        const sumTotalPnl = document.getElementById('sumTotalPnl');
+        const sumWinLose = document.getElementById('sumWinLose');
+
+        const filterSymbol = document.getElementById('filterSymbol');
+        const filterTimeframe = document.getElementById('filterTimeframe');
+        const filterSession = document.getElementById('filterSession');
+        const filterSearch = document.getElementById('filterSearch');
+
+        const historyTbody = document.getElementById('historyTbody');
+        const historyMeta = document.getElementById('historyMeta');
+        const filtersMeta = document.getElementById('filtersMeta');
+
+        let tradesCache = [];
+
+        async function fetchJSON(url, opts) {
+            try {
+                const res = await fetch(url, opts);
+                if (!res.ok) return null;
+                return await res.json();
+            } catch (e) {
+                console.error('Fetch error', url, e);
+                return null;
+            }
+        }
+
+        function setTotalPnl(value) {
+            const num = Number(value || 0);
+            const pref = num >= 0 ? '+' : '';
+            sumTotalPnl.textContent = `${pref}${num.toFixed(2)}`;
+            sumTotalPnl.classList.toggle('positive', num >= 0);
+            sumTotalPnl.classList.toggle('negative', num < 0);
+        }
+
+        function fillSelect(selectEl, values, allLabel) {
+            selectEl.innerHTML = '';
+            const all = document.createElement('option');
+            all.value = '';
+            all.textContent = allLabel;
+            selectEl.appendChild(all);
+            values.forEach(v => {
+                const opt = document.createElement('option');
+                opt.value = v;
+                opt.textContent = v;
+                selectEl.appendChild(opt);
+            });
+        }
+
+        function buildFilterOptions() {
+            const symbols = Array.from(new Set(tradesCache.map(t => (t.symbol || '').toString()).filter(Boolean))).sort();
+            const tfs = Array.from(new Set(tradesCache.map(t => (t.timeframe || '').toString()).filter(Boolean))).sort();
+            const sessions = Array.from(new Set(tradesCache.map(t => (t.session || '').toString()).filter(Boolean))).sort();
+
+            fillSelect(filterSymbol, symbols, 'All Symbols');
+            fillSelect(filterTimeframe, tfs, 'All Timeframes');
+            fillSelect(filterSession, sessions, 'All Sessions');
+        }
+
+        function matchesSearch(trade, q) {
+            if (!q) return true;
+            const qq = q.toLowerCase();
+            const hay = [
+                trade.reason,
+                trade.strategy,
+                trade.trade_id,
+            ].map(v => (v == null ? '' : String(v)).toLowerCase());
+            return hay.some(x => x.includes(qq));
+        }
+
+        function applyFilters() {
+            const sym = (filterSymbol.value || '').trim();
+            const tf = (filterTimeframe.value || '').trim();
+            const sess = (filterSession.value || '').trim();
+            const q = (filterSearch.value || '').trim();
+
+            let list = tradesCache;
+            if (sym) list = list.filter(t => String(t.symbol || '') === sym);
+            if (tf) list = list.filter(t => String(t.timeframe || '') === tf);
+            if (sess) list = list.filter(t => String(t.session || '') === sess);
+            if (q) list = list.filter(t => matchesSearch(t, q));
+
+            renderHistory(list);
+            filtersMeta.textContent = `Filtered: ${list.length} / ${tradesCache.length}`;
+        }
+
+        function fmtPrice(v) {
+            if (v == null) return '';
+            const n = Number(v);
+            if (Number.isNaN(n)) return '';
+            return n.toFixed(2);
+        }
+
+        function fmtPnl(v) {
+            const n = Number(v || 0);
+            const pref = n >= 0 ? '+' : '';
+            return `${pref}${n.toFixed(2)}`;
+        }
+
+        function fmtPct(v) {
+            if (v == null) return '';
+            const n = Number(v);
+            if (Number.isNaN(n)) return '';
+            const pref = n >= 0 ? '+' : '';
+            return `${pref}${n.toFixed(2)}`;
+        }
+
+        function fmtTime(v) {
+            if (!v) return '';
+            const dt = new Date(v);
+            if (Number.isNaN(dt.getTime())) return '';
+            return dt.toLocaleString();
+        }
+
+        function renderHistory(trades) {
+            historyTbody.innerHTML = '';
+            const list = Array.isArray(trades) ? trades : [];
+
+            if (!list.length) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = '<td colspan="13">No trades.</td>';
+                historyTbody.appendChild(tr);
+                historyMeta.textContent = '0 rows';
+                return;
+            }
+
+            list.forEach(t => {
+                const pnlVal = Number(t.pnl || 0);
+                const pnlClass = pnlVal >= 0 ? 'positive' : 'negative';
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${t['Sr. No'] ?? ''}</td>
+                    <td>${t['Symbol'] ?? ''}</td>
+                    <td>${t['Direction'] ?? ''}</td>
+                    <td>${t['Timeframe'] ?? ''}</td>
+                    <td>${t['Strategy'] || ''}</td>
+                    <td>${t['Entry Price'] ?? ''}</td>
+                    <td>${t['Entry Time (IST)'] ?? ''}</td>
+                    <td>${fmtPrice(t.exit_price)}</td>
+                    <td class="${pnlClass} mono">${fmtPnl(t.pnl)}</td>
+                    <td class="mono">${fmtPct(t.pnl_percent)}</td>
+                    <td>${fmtTime(t.entry_time)}</td>
+                    <td>${fmtTime(t.exit_time)}</td>
+                    <td>${t.timeframe ?? ''}</td>
+                    <td>${t.session ?? ''}</td>
+                    <td>${t.reason ?? ''}</td>
+                `;
+                historyTbody.appendChild(tr);
+            });
+
+            historyMeta.textContent = `${list.length} rows`;
+        }
+
+        async function loadPerformance() {
+            const perf = await fetchJSON('/api/pure/performance');
+            if (!perf) return;
+
+            sumTotalTrades.textContent = perf.total_trades ?? '0';
+            sumWinRate.textContent = (Number(perf.win_rate || 0)).toFixed(2);
+            setTotalPnl(perf.total_pnl || 0);
+            sumWinLose.textContent = `${perf.winning_trades ?? 0} / ${perf.losing_trades ?? 0}`;
+        }
+
+        async function loadTrades() {
+            const data = await fetchJSON('/api/pure/trades?limit=10000');
+            if (!data) return;
+
+            const trades = Array.isArray(data.trades) ? data.trades : [];
+            tradesCache = trades;
+
+            buildFilterOptions();
+            applyFilters();
+        }
+
+        document.getElementById('liveDashboardBtn').addEventListener('click', () => {
+            window.location.href = '/';
+        });
+
+        [filterSymbol, filterTimeframe, filterSession].forEach(el => {
+            el.addEventListener('change', applyFilters);
+        });
+        filterSearch.addEventListener('input', () => {
+            applyFilters();
+        });
+
+        async function init() {
+            await Promise.all([
+                loadPerformance(),
+                loadTrades(),
+            ]);
+        }
+
+        init();
+    </script>
+</body>
+</html>

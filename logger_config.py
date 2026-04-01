@@ -1,6 +1,6 @@
 """
 Logging Configuration Module
-Sets up comprehensive logging for the live trading system with PythonAnywhere support.
+Sets up comprehensive logging for the live trading system with Fly.io support.
 """
 
 import logging
@@ -12,7 +12,7 @@ import sys
 
 # Import cloud_utils for path management
 try:
-    from cloud_utils import get_logs_path, is_pythonanywhere, cloud_logger
+    from cloud_utils import get_logs_path, cloud_logger
     _cloud_utils_available = True
 except ImportError:
     _cloud_utils_available = False
@@ -30,12 +30,10 @@ class LoggerConfig:
         if _cloud_utils_available:
             logs_dir = get_logs_path()
             log_file = os.path.join(logs_dir, os.path.basename(config.get('file', 'live_engine.log')))
-            is_pa = is_pythonanywhere()
         else:
             log_file = config.get('file', 'logs/live_engine.log')
             log_path = Path(log_file)
             log_path.parent.mkdir(parents=True, exist_ok=True)
-            is_pa = False
         
         # Create logs directory
         log_path = Path(log_file)

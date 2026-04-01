@@ -1,0 +1,43 @@
+app = "mini-simon"
+primary_region = "bom"  # Mumbai region (closest to India for NSE/MCX trading)
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  FLY_IO = "true"
+  PYTHONUNBUFFERED = "1"
+  PAPER_TRADING_MODE = "true"
+  LOG_LEVEL = "INFO"
+  WS_MAX_RECONNECT_ATTEMPTS = "10"
+  WS_RECONNECT_DELAY = "5"
+  WS_HEARTBEAT_INTERVAL = "30"
+  WS_TICK_TIMEOUT = "90"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false  # Keep running 24/7
+  auto_start_machines = true
+  min_machines_running = 1  # Always keep at least 1 machine running
+
+  [[http_service.checks]]
+    grace_period = "5s"
+    interval = "30s"
+    method = "GET"
+    timeout = "10s"
+    path = "/api/health"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512  # Adjust based on your needs (512MB should be enough for Mini Simon)
+
+# Optional: Set up secrets for sensitive data (FYERS_ACCESS_TOKEN, etc.)
+# Run: fly secrets set FYERS_APP_ID=xxx FYERS_ACCESS_TOKEN=xxx
+
+# Optional: Persistent volume for logs and data (if needed)
+# [mounts]
+#   source = "mini_simon_data"
+#   destination = "/app/data"

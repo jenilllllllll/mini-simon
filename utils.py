@@ -12,7 +12,11 @@ import json
 import os
 from pathlib import Path
 
+import pytz
+
 logger = logging.getLogger(__name__)
+
+IST = pytz.timezone("Asia/Kolkata")
 
 class TimeUtils:
     """Time-related utility functions"""
@@ -21,7 +25,7 @@ class TimeUtils:
     def is_market_hours(dt: datetime = None) -> bool:
         """Check if given time is within Indian market hours"""
         if dt is None:
-            dt = datetime.now()
+            dt = datetime.now(IST)
             
         # Check if it's a weekday (Monday=0 to Friday=4)
         if dt.weekday() > 4:
@@ -38,7 +42,7 @@ class TimeUtils:
     def get_next_market_open(dt: datetime = None) -> datetime:
         """Get next market open time"""
         if dt is None:
-            dt = datetime.now()
+            dt = datetime.now(IST)
             
         # If it's weekend, go to Monday
         if dt.weekday() >= 5:  # Saturday=5, Sunday=6
@@ -265,11 +269,11 @@ class FileUtils:
             if not directory.exists():
                 return 0
                 
-            cutoff_date = datetime.now() - timedelta(days=days_old)
+            cutoff_date = datetime.now(IST) - timedelta(days=days_old)
             deleted_count = 0
             
             for filepath in directory.glob(pattern):
-                if filepath.is_file() and datetime.fromtimestamp(filepath.stat().st_mtime) < cutoff_date:
+                if filepath.is_file() and datetime.fromtimestamp(filepath.stat().st_mtime, IST) < cutoff_date:
                     filepath.unlink()
                     deleted_count += 1
                     

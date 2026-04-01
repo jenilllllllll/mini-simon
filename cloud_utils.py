@@ -1,5 +1,5 @@
 """
-Cloud Configuration Module for PythonAnywhere Deployment
+Cloud Configuration Module - Fly.io Deployment
 Handles path management, environment detection, and cloud-specific settings.
 """
 
@@ -8,24 +8,28 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-def is_pythonanywhere() -> bool:
-    """Detect if running on PythonAnywhere environment."""
+def is_fly_io() -> bool:
+    """Detect if running on Fly.io environment."""
     return bool(
-        os.getenv('PYTHONANYWHERE_DOMAIN') or 
-        os.getenv('PYTHONANYWHERE_SITE') or
-        '/home/' in os.getcwd() and 'pythonanywhere' in os.getenv('HOSTNAME', '')
+        os.getenv('FLY_IO') or
+        os.getenv('FLY_APP_NAME') or
+        os.getenv('FLY_REGION') or
+        os.path.exists('/.fly')
     )
+
+def is_cloud() -> bool:
+    """Detect if running on cloud environment."""
+    return is_fly_io()
 
 def get_base_path() -> str:
     """Get the base path for the project.
     
     Returns:
-        Absolute path to project root, compatible with local and PythonAnywhere environments.
+        Absolute path to project root, compatible with local and Fly.io.
     """
-    if is_pythonanywhere():
-        # On PythonAnywhere, use the environment variable or construct from username
-        username = os.getenv('PYTHONANYWHERE_USERNAME', os.getenv('USER', 'your_username'))
-        return os.getenv('PYTHONANYWHERE_PROJECT_PATH', f'/home/{username}/mini-simon')
+    if is_fly_io():
+        # On Fly.io, use the /app directory
+        return '/app'
     else:
         # Local development - use the directory containing this file
         return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -107,11 +111,11 @@ def get_fyers_credentials() -> dict:
     
     if not app_id or app_id == 'YOUR_APP_ID_HERE':
         cloud_logger.error("FYERS_APP_ID not configured in environment")
-        raise ValueError("FYERS_APP_ID must be set in .env file")
+        raise ValueError("FYERS_APP_ID must be set in environment")
     
     if not access_token or access_token == 'YOUR_ACCESS_TOKEN_HERE':
         cloud_logger.error("FYERS_ACCESS_TOKEN not configured in environment")
-        raise ValueError("FYERS_ACCESS_TOKEN must be set in .env file")
+        raise ValueError("FYERS_ACCESS_TOKEN must be set in environment")
     
     # Handle token format (may include client_id: prefix)
     if ':' in access_token:
@@ -147,3 +151,17 @@ def get_trading_config() -> dict:
         'account_size': float(os.getenv('ACCOUNT_SIZE', '100000')),
         'enable_mcx': os.getenv('ENABLE_MCX', 'true').lower() == 'true',
     }
+
+def get_cloud_info() -> dict:
+    """Get information about the cloud environment."""
+    if is_fly_io():
+        return {
+            'platform': 'fly.io',
+            'app_name': os.getenv('FLY_APP_NAME', 'unknown'),
+            'region': os.getenv('FLY_REGION', 'unknown'),
+            'allocation_id': os.getenv('FLY_ALLOC_ID', 'unknown'),
+        }
+    else:
+        return {
+            'platform': 'local',
+        }

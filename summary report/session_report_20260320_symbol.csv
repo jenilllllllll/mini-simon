@@ -1,0 +1,2 @@
+symbol,segment,total_trades,wins,win_rate_pct,gross_pnl,total_brokerage,net_pnl,loss_limit,loss_limit_breached
+MCX:CRUDEOIL26APRFUT,EQUITY,1,1,100.0,100.0,0.0,-602.44,1000,NO

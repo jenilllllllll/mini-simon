@@ -1,0 +1,418 @@
+[
+  {
+    "symbol": "MCX:CRUDEOIL26MARFUT",
+    "action": "SELL",
+    "confidence": 0.7,
+    "entry_price": 9007.0,
+    "stop_loss_level": 9010.0,
+    "target_level": 8998.0,
+    "signal_timestamp": "13-Mar-2026 11:06 PM",
+    "signal_timeframe": "1m",
+    "chart_anchor_price": 9010.0,
+    "timestamp_generated": "13-Mar-2026 11:07 PM",
+    "aggregated_confidence": 0.7,
+    "final_action": "SELL",
+    "contributing_strategies": [
+      "ema_scalping_5"
+    ],
+    "contributing_timeframes": [
+      "1m"
+    ],
+    "decision_score": 0.45,
+    "version_id": "v1.0.0",
+    "raw_strategy_outputs": [
+      {
+        "strategy_name": "ema_scalping_5",
+        "symbol": "MCX:CRUDEOIL26MARFUT",
+        "timeframe": "1m",
+        "action": "SELL",
+        "entry_price": 9007.0,
+        "stop_loss": 9010.0,
+        "target": 8998.0,
+        "confidence": 0.7,
+        "anchor_price": 9010.0,
+        "metadata": {
+          "strategy_weight": 0.4,
+          "timeframe_weight": 1.0
+        },
+        "timestamp": "13-Mar-2026 11:06 PM"
+      }
+    ],
+    "metadata": {
+      "signal_count": 1,
+      "strategy_distribution": {
+        "ema_scalping_5": 1
+      },
+      "timeframe_distribution": {
+        "1m": 1
+      },
+      "weight_distribution": {
+        "ema_scalping_5": 0.25
+      }
+    }
+  },
+  {
+    "symbol": "MCX:SILVER26MAYFUT",
+    "action": "SELL",
+    "confidence": 0.7,
+    "entry_price": 260334.0,
+    "stop_loss_level": 260342.0,
+    "target_level": 260310.0,
+    "signal_timestamp": "13-Mar-2026 11:08 PM",
+    "signal_timeframe": "1m",
+    "chart_anchor_price": 260342.0,
+    "timestamp_generated": "13-Mar-2026 11:09 PM",
+    "aggregated_confidence": 0.7,
+    "final_action": "SELL",
+    "contributing_strategies": [
+      "ema_scalping_5"
+    ],
+    "contributing_timeframes": [
+      "1m"
+    ],
+    "decision_score": 0.45,
+    "version_id": "v1.0.0",
+    "raw_strategy_outputs": [
+      {
+        "strategy_name": "ema_scalping_5",
+        "symbol": "MCX:SILVER26MAYFUT",
+        "timeframe": "1m",
+        "action": "SELL",
+        "entry_price": 260334.0,
+        "stop_loss": 260342.0,
+        "target": 260310.0,
+        "confidence": 0.7,
+        "anchor_price": 260342.0,
+        "metadata": {
+          "strategy_weight": 0.4,
+          "timeframe_weight": 1.0
+        },
+        "timestamp": "13-Mar-2026 11:08 PM"
+      }
+    ],
+    "metadata": {
+      "signal_count": 1,
+      "strategy_distribution": {
+        "ema_scalping_5": 1
+      },
+      "timeframe_distribution": {
+        "1m": 1
+      },
+      "weight_distribution": {
+        "ema_scalping_5": 0.25
+      }
+    }
+  },
+  {
+    "symbol": "MCX:GOLD26APRFUT",
+    "action": "SELL",
+    "confidence": 0.4,
+    "entry_price": 158538.0,
+    "stop_loss_level": 158558.07142857142,
+    "target_level": 158497.85714285713,
+    "signal_timestamp": "13-Mar-2026 11:12 PM",
+    "signal_timeframe": "1m",
+    "chart_anchor_price": 158660.26688804792,
+    "timestamp_generated": "13-Mar-2026 11:13 PM",
+    "aggregated_confidence": 0.4,
+    "final_action": "SELL",
+    "contributing_strategies": [
+      "ema_crossover_5_20"
+    ],
+    "contributing_timeframes": [
+      "1m"
+    ],
+    "decision_score": 0.30000000000000004,
+    "version_id": "v1.0.0",
+    "raw_strategy_outputs": [
+      {
+        "strategy_name": "ema_crossover_5_20",
+        "symbol": "MCX:GOLD26APRFUT",
+        "timeframe": "1m",
+        "action": "SELL",
+        "entry_price": 158538.0,
+        "stop_loss": 158558.07142857142,
+        "target": 158497.85714285713,
+        "confidence": 0.4,
+        "anchor_price": 158660.26688804792,
+        "metadata": {
+          "strategy_weight": 0.25,
+          "timeframe_weight": 1.0
+        },
+        "timestamp": "13-Mar-2026 11:12 PM"
+      }
+    ],
+    "metadata": {
+      "signal_count": 1,
+      "strategy_distribution": {
+        "ema_crossover_5_20": 1
+      },
+      "timeframe_distribution": {
+        "1m": 1
+      },
+      "weight_distribution": {
+        "ema_crossover_5_20": 0.25
+      }
+    }
+  },
+  {
+    "symbol": "MCX:GOLD26APRFUT",
+    "action": "BUY",
+    "confidence": 0.7,
+    "entry_price": 158360.0,
+    "stop_loss_level": 158357.0,
+    "target_level": 158369.0,
+    "signal_timestamp": "13-Mar-2026 11:19 PM",
+    "signal_timeframe": "1m",
+    "chart_anchor_price": 158357.0,
+    "timestamp_generated": "13-Mar-2026 11:20 PM",
+    "aggregated_confidence": 0.7,
+    "final_action": "BUY",
+    "contributing_strategies": [
+      "ema_scalping_5"
+    ],
+    "contributing_timeframes": [
+      "1m"
+    ],
+    "decision_score": 0.45,
+    "version_id": "v1.0.0",
+    "raw_strategy_outputs": [
+      {
+        "strategy_name": "ema_scalping_5",
+        "symbol": "MCX:GOLD26APRFUT",
+        "timeframe": "1m",
+        "action": "BUY",
+        "entry_price": 158360.0,
+        "stop_loss": 158357.0,
+        "target": 158369.0,
+        "confidence": 0.7,
+        "anchor_price": 158357.0,
+        "metadata": {
+          "strategy_weight": 0.4,
+          "timeframe_weight": 1.0
+        },
+        "timestamp": "13-Mar-2026 11:19 PM"
+      }
+    ],
+    "metadata": {
+      "signal_count": 1,
+      "strategy_distribution": {
+        "ema_scalping_5": 1
+      },
+      "timeframe_distribution": {
+        "1m": 1
+      },
+      "weight_distribution": {
+        "ema_scalping_5": 0.25
+      }
+    }
+  },
+  {
+    "symbol": "MCX:CRUDEOIL26MARFUT",
+    "action": "BUY",
+    "confidence": 0.7,
+    "entry_price": 9065.0,
+    "stop_loss_level": 9064.0,
+    "target_level": 9068.0,
+    "signal_timestamp": "13-Mar-2026 11:20 PM",
+    "signal_timeframe": "1m",
+    "chart_anchor_price": 9064.0,
+    "timestamp_generated": "13-Mar-2026 11:21 PM",
+    "aggregated_confidence": 0.7,
+    "final_action": "BUY",
+    "contributing_strategies": [
+      "ema_scalping_5"
+    ],
+    "contributing_timeframes": [
+      "1m"
+    ],
+    "decision_score": 0.45,
+    "version_id": "v1.0.0",
+    "raw_strategy_outputs": [
+      {
+        "strategy_name": "ema_scalping_5",
+        "symbol": "MCX:CRUDEOIL26MARFUT",
+        "timeframe": "1m",
+        "action": "BUY",
+        "entry_price": 9065.0,
+        "stop_loss": 9064.0,
+        "target": 9068.0,
+        "confidence": 0.7,
+        "anchor_price": 9064.0,
+        "metadata": {
+          "strategy_weight": 0.4,
+          "timeframe_weight": 1.0
+        },
+        "timestamp": "13-Mar-2026 11:20 PM"
+      }
+    ],
+    "metadata": {
+      "signal_count": 1,
+      "strategy_distribution": {
+        "ema_scalping_5": 1
+      },
+      "timeframe_distribution": {
+        "1m": 1
+      },
+      "weight_distribution": {
+        "ema_scalping_5": 0.25
+      }
+    }
+  },
+  {
+    "symbol": "MCX:CRUDEOIL26MARFUT",
+    "action": "SELL",
+    "confidence": 0.7,
+    "entry_price": 9088.0,
+    "stop_loss_level": 9090.0,
+    "target_level": 9082.0,
+    "signal_timestamp": "13-Mar-2026 11:25 PM",
+    "signal_timeframe": "1m",
+    "chart_anchor_price": 9090.0,
+    "timestamp_generated": "13-Mar-2026 11:26 PM",
+    "aggregated_confidence": 0.7,
+    "final_action": "SELL",
+    "contributing_strategies": [
+      "ema_scalping_5"
+    ],
+    "contributing_timeframes": [
+      "1m"
+    ],
+    "decision_score": 0.45,
+    "version_id": "v1.0.0",
+    "raw_strategy_outputs": [
+      {
+        "strategy_name": "ema_scalping_5",
+        "symbol": "MCX:CRUDEOIL26MARFUT",
+        "timeframe": "1m",
+        "action": "SELL",
+        "entry_price": 9088.0,
+        "stop_loss": 9090.0,
+        "target": 9082.0,
+        "confidence": 0.7,
+        "anchor_price": 9090.0,
+        "metadata": {
+          "strategy_weight": 0.4,
+          "timeframe_weight": 1.0
+        },
+        "timestamp": "13-Mar-2026 11:25 PM"
+      }
+    ],
+    "metadata": {
+      "signal_count": 1,
+      "strategy_distribution": {
+        "ema_scalping_5": 1
+      },
+      "timeframe_distribution": {
+        "1m": 1
+      },
+      "weight_distribution": {
+        "ema_scalping_5": 0.25
+      }
+    }
+  },
+  {
+    "symbol": "MCX:GOLD26APRFUT",
+    "action": "SELL",
+    "confidence": 0.7,
+    "entry_price": 158442.0,
+    "stop_loss_level": 158475.0,
+    "target_level": 158343.0,
+    "signal_timestamp": "13-Mar-2026 11:26 PM",
+    "signal_timeframe": "1m",
+    "chart_anchor_price": 158475.0,
+    "timestamp_generated": "13-Mar-2026 11:27 PM",
+    "aggregated_confidence": 0.7,
+    "final_action": "SELL",
+    "contributing_strategies": [
+      "ema_scalping_5"
+    ],
+    "contributing_timeframes": [
+      "1m"
+    ],
+    "decision_score": 0.45,
+    "version_id": "v1.0.0",
+    "raw_strategy_outputs": [
+      {
+        "strategy_name": "ema_scalping_5",
+        "symbol": "MCX:GOLD26APRFUT",
+        "timeframe": "1m",
+        "action": "SELL",
+        "entry_price": 158442.0,
+        "stop_loss": 158475.0,
+        "target": 158343.0,
+        "confidence": 0.7,
+        "anchor_price": 158475.0,
+        "metadata": {
+          "strategy_weight": 0.4,
+          "timeframe_weight": 1.0
+        },
+        "timestamp": "13-Mar-2026 11:26 PM"
+      }
+    ],
+    "metadata": {
+      "signal_count": 1,
+      "strategy_distribution": {
+        "ema_scalping_5": 1
+      },
+      "timeframe_distribution": {
+        "1m": 1
+      },
+      "weight_distribution": {
+        "ema_scalping_5": 0.25
+      }
+    }
+  },
+  {
+    "symbol": "MCX:SILVER26MAYFUT",
+    "action": "BUY",
+    "confidence": 0.7,
+    "entry_price": 259200.0,
+    "stop_loss_level": 259199.0,
+    "target_level": 259203.0,
+    "signal_timestamp": "13-Mar-2026 11:26 PM",
+    "signal_timeframe": "1m",
+    "chart_anchor_price": 259199.0,
+    "timestamp_generated": "13-Mar-2026 11:27 PM",
+    "aggregated_confidence": 0.7,
+    "final_action": "BUY",
+    "contributing_strategies": [
+      "ema_scalping_5"
+    ],
+    "contributing_timeframes": [
+      "1m"
+    ],
+    "decision_score": 0.45,
+    "version_id": "v1.0.0",
+    "raw_strategy_outputs": [
+      {
+        "strategy_name": "ema_scalping_5",
+        "symbol": "MCX:SILVER26MAYFUT",
+        "timeframe": "1m",
+        "action": "BUY",
+        "entry_price": 259200.0,
+        "stop_loss": 259199.0,
+        "target": 259203.0,
+        "confidence": 0.7,
+        "anchor_price": 259199.0,
+        "metadata": {
+          "strategy_weight": 0.4,
+          "timeframe_weight": 1.0
+        },
+        "timestamp": "13-Mar-2026 11:26 PM"
+      }
+    ],
+    "metadata": {
+      "signal_count": 1,
+      "strategy_distribution": {
+        "ema_scalping_5": 1
+      },
+      "timeframe_distribution": {
+        "1m": 1
+      },
+      "weight_distribution": {
+        "ema_scalping_5": 0.25
+      }
+    }
+  }
+]

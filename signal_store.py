@@ -19,9 +19,9 @@ from contextlib import contextmanager
 
 from live_signal_aggregator import AggregatedSignal
 
-# Import cloud_utils for path management (PythonAnywhere compatibility)
+# Import cloud_utils for path management (Fly.io compatibility)
 try:
-    from cloud_utils import get_signals_path, is_pythonanywhere
+    from cloud_utils import get_signals_path
     _cloud_utils_available = True
 except ImportError:
     _cloud_utils_available = False

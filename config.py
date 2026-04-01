@@ -11,9 +11,8 @@ Set these environment variables (or in a .env file for local development):
 - FYERS_APP_ID
 - FYERS_ACCESS_TOKEN
 
-For PythonAnywhere deployment:
-1. Create a .env file in the project root
-2. Set environment variables in the PythonAnywhere dashboard
+For Fly.io deployment:
+1. Set environment variables using: fly secrets set VAR_NAME=value
 """
 
 import os
@@ -37,7 +36,7 @@ try:
     from cloud_utils import (
         get_logs_path, get_signals_path, get_trades_path, 
         get_data_path, get_fyers_credentials, get_websocket_config,
-        get_trading_config, is_pythonanywhere, cloud_logger
+        get_trading_config, cloud_logger
     )
     _cloud_utils_available = True
 except ImportError:
@@ -90,7 +89,7 @@ class Config:
         app_id = os.getenv("FYERS_APP_ID", "YOUR_APP_ID")
         access_token = os.getenv("FYERS_ACCESS_TOKEN", "YOUR_ACCESS_TOKEN")
 
-        # Use cloud_utils paths if available for PythonAnywhere compatibility
+        # Use cloud_utils paths if available for cloud compatibility
         if _cloud_utils_available:
             log_path = get_logs_path()
             log_file = os.path.join(log_path, "live_engine.log")

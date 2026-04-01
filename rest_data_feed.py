@@ -14,7 +14,11 @@ from collections import defaultdict, deque
 import threading
 from fyers_apiv3 import fyersModel
 
+import pytz
+
 logger = logging.getLogger(__name__)
+
+IST = pytz.timezone("Asia/Kolkata")
 
 class RestDataFeed:
     """Data feed using Fyers REST API polling as WebSocket fallback"""
@@ -23,11 +27,15 @@ class RestDataFeed:
         self.config = config
         self.symbols = config['symbols']
         self.timeframes = config['timeframes']
+
+        token_raw = str(config.get('access_token') or '').strip()
+        if ':' in token_raw:
+            token_raw = token_raw.split(':', 1)[1]
         
         # Initialize Fyers client
         self.fyers_client = fyersModel.FyersModel(
             client_id=config['app_id'],
-            token=config['access_token'],
+            token=token_raw,
             log_path=config.get('log_path', '')
         )
         
@@ -43,6 +51,30 @@ class RestDataFeed:
         
         # Cache for latest prices
         self.latest_prices = {}
+
+        # Market hours
+        self._equity_open = (9, 15)
+        self._equity_close = (15, 30)
+        self._mcx_open = (9, 0)
+        self._mcx_close = (23, 30)
+
+    def is_connected(self) -> bool:
+        """Check if data feed is active"""
+        return self.is_running
+
+    def _is_market_open_for_instrument(self, instrument: str, dt: Optional[datetime] = None) -> bool:
+        if dt is None:
+            dt = datetime.now(IST)
+
+        if dt.weekday() > 4:
+            return False
+
+        t = dt.time()
+        sym = str(instrument or "").upper()
+        if sym.startswith("MCX:"):
+            return t >= dt.replace(hour=self._mcx_open[0], minute=self._mcx_open[1]).time() and t <= dt.replace(hour=self._mcx_close[0], minute=self._mcx_close[1]).time()
+
+        return t >= dt.replace(hour=self._equity_open[0], minute=self._equity_open[1]).time() and t <= dt.replace(hour=self._equity_close[0], minute=self._equity_close[1]).time()
         
     def add_callback(self, callback: Callable):
         """Add callback for new data"""
@@ -105,28 +137,54 @@ class RestDataFeed:
         """Fetch data for all symbols and timeframes"""
         # Fetch latest quotes for all symbols
         try:
-            symbols_str = ','.join([f"NSE:{symbol}" for symbol in self.symbols])
+            quote_symbols = []
+            for symbol in self.symbols:
+                sym = str(symbol or "").strip()
+                if not sym:
+                    continue
+
+                # If caller provided a full instrument like "MCX:CRUDEOIL26MARFUT"
+                # or "NSE:RELIANCE-EQ", use it as-is.
+                if ":" in sym:
+                    quote_symbols.append(sym)
+                else:
+                    # Display symbols without an exchange default to NSE.
+                    quote_symbols.append(f"NSE:{sym}")
+
+            symbols_str = ','.join(quote_symbols)
             quotes_response = self.fyers_client.quotes({'symbols': symbols_str})
             
-            if quotes_response.get('s') == 'ok':
-                for quote_data in quotes_response.get('d', []):
-                    if quote_data.get('v', {}).get('s') == 'ok':
-                        symbol = quote_data['n'].replace('NSE:', '')
-                        price_data = quote_data['v']
+            status = quotes_response.get('s')
+            items = quotes_response.get('d', [])
+            logger.info(f"REST Quotes API status: {status}, returned {len(items)} items")
+            
+            if status == 'ok':
+                for quote_data in items:
+                    if quote_data.get('s') == 'ok':
+                        v_data = quote_data.get('v', {})
+                        instrument = str(quote_data.get('n') or "")
+                        price_data = v_data
+
+                        now = datetime.now(IST)
+                        if not self._is_market_open_for_instrument(instrument, now):
+                            continue
+                    else:
+                        logger.warning(f"Quote data status not ok: {quote_data}")
+                        continue
                         
-                        # Update latest price
-                        self.latest_prices[symbol] = price_data.get('lp', 0)
-                        
-                        # Create tick data
-                        tick_data = {
-                            'timestamp': datetime.now(),
-                            'price': price_data.get('lp', 0),
-                            'volume': price_data.get('tv', 0)
-                        }
-                        
-                        # Update candles for all timeframes
-                        for timeframe in self.timeframes:
-                            self._update_candle(symbol, timeframe, tick_data)
+                    # Update latest price
+                    self.latest_prices[instrument] = price_data.get('lp', 0)
+                    
+                    # Create tick data
+                    tick_data = {
+                        'timestamp': now,
+                        'price': price_data.get('lp', 0),
+                        'volume': price_data.get('tv', 0)
+                    }
+                    
+                    # Update candles for all timeframes
+                    for timeframe in self.timeframes:
+                        self._update_candle(instrument, timeframe, tick_data)
                             
         except Exception as e:
             logger.error(f"Error fetching quotes: {e}")
@@ -179,9 +237,41 @@ class RestDataFeed:
         if len(candles) > self.max_candles:
             candles.popleft()
             
+    def add_historical_candles(self, symbol: str, timeframe: str, df: pd.DataFrame):
+        """Pre-populate the candle cache with historical data"""
+        if df.empty:
+            return
+            
+        candles = self.candles[symbol][timeframe]
+        
+        for _, row in df.iterrows():
+            ts = row['date']
+            if hasattr(ts, 'to_pydatetime'):
+                ts = ts.to_pydatetime()
+                
+            candle = {
+                'timestamp': ts,
+                'open': float(row['open']),
+                'high': float(row['high']),
+                'low': float(row['low']),
+                'close': float(row['close']),
+                'volume': float(row['volume'])
+            }
+            
+            # Avoid duplicates if any
+            if not candles or candles[-1]['timestamp'] < ts:
+                candles.append(candle)
+                
+        # Limit candle history
+        while len(candles) > self.max_candles:
+            candles.popleft()
+            
     def get_historical_candles(self, symbol: str, timeframe: str, count: int = 100) -> pd.DataFrame:
         """Get historical candles using REST API"""
         try:
+            # First, try to get a larger chunk than 'count' to ensure we have enough after cleaning
+            fetch_count = max(count * 2, 250)
+            
             # Convert timeframe to Fyers format
             tf_mapping = {
                 '1m': '1', '3m': '3', '5m': '5', '15m': '15',
@@ -191,18 +281,22 @@ class RestDataFeed:
             fyers_tf = tf_mapping.get(timeframe, timeframe)
             
             # Calculate start date
-            end_date = datetime.now()
+            end_date = datetime.now(IST)
             if timeframe == '1D':
-                start_date = end_date - timedelta(days=count)
+                # Go back 300 days for daily
+                start_date = end_date - timedelta(days=500)
             else:
-                # Approximate minutes needed
-                tf_minutes = {'1m': 1, '3m': 3, '5m': 5, '15m': 15, '60m': 60, '120m': 120, '180m': 180, '240m': 240}
-                minutes_needed = count * tf_minutes.get(timeframe, 60)
-                start_date = end_date - timedelta(minutes=minutes_needed)
+                # For intraday, always go back 10 days to be very safe
+                start_date = end_date - timedelta(days=10)
                 
-            # Get historical data
+            # Get historical data. If symbol already contains an exchange
+            # prefix like "NSE:RELIANCE-EQ", don't prepend another one.
+            hist_symbol = symbol
+            if isinstance(hist_symbol, str) and ":" not in hist_symbol:
+                hist_symbol = f"NSE:{hist_symbol}"
+
             data = {
-                "symbol": f"NSE:{symbol}",
+                "symbol": hist_symbol,
                 "resolution": fyers_tf,
                 "date_format": "1",
                 "range_from": start_date.strftime("%Y-%m-%d"),
@@ -215,7 +309,7 @@ class RestDataFeed:
             if response.get('s') == 'ok':
                 candles = response['candles']
                 df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-                df['date'] = pd.to_datetime(df['timestamp'], unit='s')
+                df['date'] = pd.to_datetime(df['timestamp'], unit='s', utc=True).dt.tz_convert(IST)
                 df = df[['date', 'open', 'high', 'low', 'close', 'volume']]
                 return df.tail(count)  # Return only requested count
             else:

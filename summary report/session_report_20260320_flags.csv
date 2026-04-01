@@ -1,0 +1,8 @@
+flag_type,severity,detail,count,action_required
+NO_SIGNAL_STRATEGY,CRITICAL,stock_burner generated 0 trades — check signal logic,1,YES
+NO_SIGNAL_STRATEGY,CRITICAL,vol_spike generated 0 trades — check signal logic,1,YES
+NO_SIGNAL_STRATEGY,CRITICAL,order_block generated 0 trades — check signal logic,1,YES
+NO_SIGNAL_STRATEGY,CRITICAL,body_imbalance generated 0 trades — check signal logic,1,YES
+NO_SIGNAL_STRATEGY,CRITICAL,smc_liquidity_trap generated 0 trades — check signal logic,1,YES
+NO_SIGNAL_STRATEGY,CRITICAL,ema_crossover_5_20 generated 0 trades — check signal logic,1,YES
+ZERO_SECOND_TRADES,WARNING,1 trades have identical entry and exit timestamp,1,YES

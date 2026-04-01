@@ -1,0 +1,28 @@
+[
+  {
+    "trade_id": "d608374e-de1b-43fe-bc9e-ba1939d3ff49",
+    "symbol": "MCX:CRUDEOIL26APRFUT",
+    "display_symbol": "CRUDE",
+    "direction": "BUY",
+    "qty": 1,
+    "lot_size": 100,
+    "entry_price": 9368.0,
+    "entry_time": "27-Mar-2026 10:21 PM",
+    "exit_price": 9368.0,
+    "exit_time": "27-Mar-2026 10:21 PM",
+    "status": "CLOSED",
+    "timeframe": "1m",
+    "strategy": "ema_scalping_5",
+    "reason": "EngineSignal",
+    "stop_loss": 8376.0,
+    "target": 8420.0,
+    "aggregated_confidence": 0.7,
+    "decision_score": 0.45,
+    "exit_reason": "TargetHit",
+    "pnl_points": 0.0,
+    "gross_pnl": 0.0,
+    "charges": 0.0004,
+    "pnl": -749.44,
+    "outcome": "TGT Hit"
+  }
+]

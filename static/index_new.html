@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mini-Simon Trading System</title>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #ffffff;
+            overflow-x: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: bold;
+            background: linear-gradient(45deg, #00ff88, #00aaff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-indicators {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .status-connected {
+            background: #00ff8820;
+            color: #00ff88;
+            border: 1px solid #00ff88;
+        }
+
+        .status-disconnected {
+            background: #ff444420;
+            color: #ff4444;
+            border: 1px solid #ff4444;
+        }
+
+        .main-container {
+            display: grid;
+            grid-template-columns: 1fr 2fr 1fr;
+            gap: 1rem;
+            padding: 1rem;
+            height: calc(100vh - 80px);
+        }
+
+        .panel {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 1rem;
+            overflow-y: auto;
+        }
+
+        .panel-header {
+            font-size: 1.125rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #333;
+        }
+
+        .watchlist-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem;
+            margin-bottom: 0.25rem;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .watchlist-item:hover {
+            background: #2a2a2a;
+        }
+
+        .watchlist-item.selected {
+            background: #00ff8810;
+            border: 1px solid #00ff88;
+        }
+
+        .symbol-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .symbol-name {
+            font-weight: 600;
+        }
+
+        .symbol-instrument {
+            font-size: 0.75rem;
+            color: #888;
+        }
+
+        .price-info {
+            text-align: right;
+        }
+
+        .current-price {
+            font-weight: 600;
+            font-size: 1rem;
+        }
+
+        .price-change {
+            font-size: 0.75rem;
+        }
+
+        .price-positive {
+            color: #00ff88;
+        }
+
+        .price-negative {
+            color: #ff4444;
+        }
+
+        .chart-container {
+            height: 60%;
+            margin-bottom: 1rem;
+        }
+
+        .trade-form {
+            display: grid;
+            gap: 0.75rem;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .form-group label {
+            font-size: 0.875rem;
+            color: #aaa;
+        }
+
+        .form-group input,
+        .form-group select {
+            padding: 0.5rem;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 4px;
+            color: #fff;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+        }
+
+        .btn {
+            padding: 0.75rem 1rem;
+            border: none;
+            border-radius: 4px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(45deg, #00ff88, #00aaff);
+            color: #000;
+        }
+
+        .btn-buy {
+            background: #00ff88;
+            color: #000;
+        }
+
+        .btn-sell {
+            background: #ff4444;
+            color: #fff;
+        }
+
+        .btn-secondary {
+            background: #444;
+            color: #fff;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 255, 136, 0.3);
+        }
+
+        .signal-item {
+            background: #2a2a2a;
+            border-radius: 4px;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            border-left: 3px solid #00ff88;
+        }
+
+        .signal-sell {
+            border-left-color: #ff4444;
+        }
+
+        .signal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .signal-symbol {
+            font-weight: 600;
+        }
+
+        .signal-type {
+            padding: 0.25rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .signal-buy {
+            background: #00ff8820;
+            color: #00ff88;
+        }
+
+        .signal-sell {
+            background: #ff444420;
+            color: #ff4444;
+        }
+
+        .signal-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+        }
+
+        .signal-detail {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .signal-label {
+            color: #888;
+            font-size: 0.75rem;
+        }
+
+        .signal-value {
+            font-weight: 600;
+        }
+
+        .trade-item {
+            background: #2a2a2a;
+            border-radius: 4px;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .trade-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .trade-status {
+            padding: 0.25rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .trade-open {
+            background: #00aaff20;
+            color: #00aaff;
+        }
+
+        .trade-closed {
+            background: #888820;
+            color: #888;
+        }
+
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+            color: #888;
+        }
+
+        .tab-container {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .tab {
+            padding: 0.5rem 1rem;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 4px 4px 0 0;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tab.active {
+            background: #333;
+            border-bottom-color: #333;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .export-btn {
+            position: fixed;
+            bottom: 1rem;
+            right: 1rem;
+            z-index: 1000;
+        }
+
+        @media (max-width: 1200px) {
+            .main-container {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto 1fr auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="logo">Mini-Simon Trading System</div>
+        <div class="status-indicators">
+            <div id="streamer-status" class="status-badge status-disconnected">Streamer: Offline</div>
+            <div id="connection-status" class="status-badge status-disconnected">WebSocket: Offline</div>
+        </div>
+    </header>
+
+    <main class="main-container">
+        <!-- Left Panel - Watchlist -->
+        <section class="panel">
+            <div class="panel-header">Watchlist</div>
+            
+            <div class="tab-container">
+                <div class="tab active" onclick="switchTab('nifty')">Nifty-50</div>
+                <div class="tab" onclick="switchTab('commodities')">Commodities</div>
+            </div>
+
+            <div id="nifty-watchlist" class="tab-content active">
+                <div id="nifty-list" class="loading">Loading Nifty-50...</div>
+            </div>
+
+            <div id="commodities-watchlist" class="tab-content">
+                <div id="commodities-list" class="loading">Loading Commodities...</div>
+            </div>
+        </section>
+
+        <!-- Center Panel - Chart and Trading -->
+        <section class="panel">
+            <div class="panel-header">
+                <span id="chart-symbol">Select a symbol</span>
+                <select id="timeframe" onchange="loadHistoricalData()">
+                    <option value="1m">1m</option>
+                    <option value="3m">3m</option>
+                    <option value="5m" selected>5m</option>
+                    <option value="15m">15m</option>
+                    <option value="60m">1h</option>
+                </select>
+            </div>
+
+            <div class="chart-container">
+                <div id="tradingview-chart"></div>
+            </div>
+
+            <div class="panel-header">Paper Trading</div>
+            <form id="trade-form" class="trade-form">
+                <div class="form-group">
+                    <label>Symbol</label>
+                    <input type="text" id="trade-symbol" readonly>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Side</label>
+                        <select id="trade-side">
+                            <option value="BUY">BUY</option>
+                            <option value="SELL">SELL</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Quantity</label>
+                        <input type="number" id="trade-quantity" value="1" min="1">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Entry Price</label>
+                        <input type="number" id="entry-price" step="0.01">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Stop Loss</label>
+                        <input type="number" id="stop-loss" step="0.01">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Target</label>
+                    <input type="number" id="target" step="0.01">
+                </div>
+
+                <div class="form-row">
+                    <button type="button" class="btn btn-buy" onclick="placeTrade('BUY')">Place Buy</button>
+                    <button type="button" class="btn btn-sell" onclick="placeTrade('SELL')">Place Sell</button>
+                </div>
+            </form>
+        </section>
+
+        <!-- Right Panel - Signals and Trades -->
+        <section class="panel">
+            <div class="tab-container">
+                <div class="tab active" onclick="switchRightTab('signals')">Signals</div>
+                <div class="tab" onclick="switchRightTab('trades')">Trades</div>
+            </div>
+
+            <div id="signals-panel" class="tab-content active">
+                <div class="panel-header">Active Signals</div>
+                <div id="signals-list" class="loading">Loading signals...</div>
+                
+                <div class="panel-header" style="margin-top: 1rem;">Create Signal</div>
+                <form id="signal-form" class="trade-form">
+                    <div class="form-group">
+                        <label>Symbol</label>
+                        <input type="text" id="signal-symbol" readonly>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Signal Type</label>
+                        <select id="signal-type">
+                            <option value="BUY">BUY Signal</option>
+                            <option value="SELL">SELL Signal</option>
+                        </select>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Entry Price</label>
+                            <input type="number" id="signal-entry-price" step="0.01">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Stop Loss</label>
+                            <input type="number" id="signal-stop-loss" step="0.01">
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Target</label>
+                        <input type="number" id="signal-target" step="0.01">
+                    </div>
+
+                    <button type="button" class="btn btn-primary" onclick="createSignal()">Create Signal</button>
+                </form>
+            </div>
+
+            <div id="trades-panel" class="tab-content">
+                <div class="panel-header">My Trades</div>
+                <div id="trades-list" class="loading">Loading trades...</div>
+            </div>
+        </section>
+    </main>
+
+    <button class="btn btn-secondary export-btn" onclick="exportTrades()">Export CSV</button>
+
+    <script>
+        // Global variables
+        let chart = null;
+        let selectedSymbol = null;
+        let websocket = null;
+        let currentTab = 'nifty';
+        let rightTab = 'signals';
+
+        // Initialize application
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeChart();
+            connectWebSocket();
+            loadWatchlist();
+            loadSignals();
+            loadTrades();
+            setInterval(updateWatchlist, 2000); // Update every 2 seconds
+        });
+
+        // Initialize TradingView chart
+        function initializeChart() {
+            const chartContainer = document.getElementById('tradingview-chart');
+            chart = LightweightCharts.createChart(chartContainer, {
+                width: chartContainer.clientWidth,
+                height: chartContainer.clientHeight,
+                layout: {
+                    backgroundColor: '#1a1a1a',
+                    textColor: '#ffffff',
+                },
+                grid: {
+                    vertLines: { color: '#333' },
+                    horzLines: { color: '#333' },
+                },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                },
+                timeScale: {
+                    borderColor: '#333',
+                    timeVisible: true,
+                    secondsVisible: false,
+                },
+                rightPriceScale: {
+                    borderColor: '#333',
+                },
+            });
+
+            const candlestickSeries = chart.addCandlestickSeries({
+                upColor: '#00ff88',
+                downColor: '#ff4444',
+                borderDownColor: '#ff4444',
+                    borderUpColor: '#00ff88',
+                wickDownColor: '#ff4444',
+                wickUpColor: '#00ff88',
+            });
+
+            // Store series reference for updates
+            window.candlestickSeries = candlestickSeries;
+
+            // Handle resize
+            window.addEventListener('resize', () => {
+                chart.applyOptions({
+                    width: chartContainer.clientWidth,
+                    height: chartContainer.clientHeight,
+                });
+            });
+        }
+
+        // Connect to WebSocket
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            
+            websocket = new WebSocket(wsUrl);
+            
+            websocket.onopen = function() {
+                updateConnectionStatus(true);
+                console.log('WebSocket connected');
+            };
+            
+            websocket.onmessage = function(event) {
+                const message = JSON.parse(event.data);
+                handleWebSocketMessage(message);
+            };
+            
+            websocket.onclose = function() {
+                updateConnectionStatus(false);
+                console.log('WebSocket disconnected');
+                // Attempt to reconnect after 3 seconds
+                setTimeout(connectWebSocket, 3000);
+            };
+            
+            websocket.onerror = function(error) {
+                console.error('WebSocket error:', error);
+                updateConnectionStatus(false);
+            };
+        }
+
+        // Handle WebSocket messages
+        function handleWebSocketMessage(message) {
+            switch(message.type) {
+                case 'price_update':
+                    updatePriceInWatchlist(message.symbol, message.data);
+                    break;
+                case 'trade_created':
+                    loadTrades();
+                    showNotification('Trade created successfully', 'success');
+                    break;
+                case 'trade_closed':
+                    loadTrades();
+                    showNotification('Trade closed', 'info');
+                    break;
+                case 'signal_created':
+                    loadSignals();
+                    showNotification('New signal created', 'success');
+                    break;
+            }
+        }
+
+        // Update connection status
+        function updateConnectionStatus(connected) {
+            const statusElement = document.getElementById('connection-status');
+            if (connected) {
+                statusElement.className = 'status-badge status-connected';
+                statusElement.textContent = 'WebSocket: Online';
+            } else {
+                statusElement.className = 'status-badge status-disconnected';
+                statusElement.textContent = 'WebSocket: Offline';
+            }
+        }
+
+        // Load watchlist data
+        async function loadWatchlist() {
+            try {
+                const response = await fetch('/api/watchlist');
+                const data = await response.json();
+                
+                // Update streamer status
+                const streamerStatus = document.getElementById('streamer-status');
+                if (data.streamer_connected) {
+                    streamerStatus.className = 'status-badge status-connected';
+                    streamerStatus.textContent = 'Streamer: Online';
+                } else {
+                    streamerStatus.className = 'status-badge status-disconnected';
+                    streamerStatus.textContent = 'Streamer: Offline';
+                }
+                
+                // Render watchlists
+                renderWatchlist('nifty-list', data.nifty_50);
+                renderWatchlist('commodities-list', data.commodities);
+                
+            } catch (error) {
+                console.error('Error loading watchlist:', error);
+            }
+        }
+
+        // Render watchlist
+        function renderWatchlist(elementId, items) {
+            const container = document.getElementById(elementId);
+            container.innerHTML = '';
+            
+            items.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'watchlist-item';
+                div.onclick = () => selectSymbol(item.symbol, item.ltp);
+                
+                const changeClass = item.change_pct >= 0 ? 'price-positive' : 'price-negative';
+                const changeSymbol = item.change_pct >= 0 ? '+' : '';
+                
+                div.innerHTML = `
+                    <div class="symbol-info">
+                        <div class="symbol-name">${item.symbol}</div>
+                        <div class="symbol-instrument">${item.instrument}</div>
+                    </div>
+                    <div class="price-info">
+                        <div class="current-price">${item.ltp.toFixed(2)}</div>
+                        <div class="price-change ${changeClass}">${changeSymbol}${item.change_pct.toFixed(2)}%</div>
+                    </div>
+                `;
+                
+                container.appendChild(div);
+            });
+        }
+
+        // Update price in watchlist
+        function updatePriceInWatchlist(symbol, data) {
+            // Update all watchlist items for this symbol
+            const items = document.querySelectorAll(`.watchlist-item`);
+            items.forEach(item => {
+                const symbolElement = item.querySelector('.symbol-name');
+                if (symbolElement && symbolElement.textContent === symbol) {
+                    const priceElement = item.querySelector('.current-price');
+                    const changeElement = item.querySelector('.price-change');
+                    
+                    if (priceElement) priceElement.textContent = data.ltp.toFixed(2);
+                    if (changeElement) {
+                        const changeClass = data.change_pct >= 0 ? 'price-positive' : 'price-negative';
+                        const changeSymbol = data.change_pct >= 0 ? '+' : '';
+                        changeElement.className = `price-change ${changeClass}`;
+                        changeElement.textContent = `${changeSymbol}${data.change_pct.toFixed(2)}%`;
+                    }
+                }
+            });
+        }
+
+        // Select symbol for trading
+        function selectSymbol(symbol, price) {
+            selectedSymbol = symbol;
+            
+            // Update UI
+            document.getElementById('chart-symbol').textContent = symbol;
+            document.getElementById('trade-symbol').value = symbol;
+            document.getElementById('signal-symbol').value = symbol;
+            document.getElementById('entry-price').value = price.toFixed(2);
+            document.getElementById('signal-entry-price').value = price.toFixed(2);
+            
+            // Update selected state
+            document.querySelectorAll('.watchlist-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+            event.target.closest('.watchlist-item').classList.add('selected');
+            
+            // Load historical data
+            loadHistoricalData();
+        }
+
+        // Load historical data for chart
+        async function loadHistoricalData() {
+            if (!selectedSymbol) return;
+            
+            try {
+                const timeframe = document.getElementById('timeframe').value;
+                const response = await fetch(`/api/historical/${selectedSymbol}?timeframe=${timeframe}&limit=1000`);
+                const data = await response.json();
+                
+                if (data.candles && data.candles.length > 0) {
+                    const candlestickData = data.candles.map(candle => ({
+                        time: candle.timestamp,
+                        open: candle.open,
+                        high: candle.high,
+                        low: candle.low,
+                        close: candle.close
+                    }));
+                    
+                    window.candlestickSeries.setData(candlestickData);
+                    chart.timeScale().fitContent();
+                }
+                
+            } catch (error) {
+                console.error('Error loading historical data:', error);
+            }
+        }
+
+        // Place trade
+        async function placeTrade(side) {
+            const tradeData = {
+                symbol: document.getElementById('trade-symbol').value,
+                side: side,
+                entry_price: parseFloat(document.getElementById('entry-price').value),
+                quantity: parseInt(document.getElementById('trade-quantity').value),
+                stop_loss: parseFloat(document.getElementById('stop-loss').value) || null,
+                target: parseFloat(document.getElementById('target').value) || null
+            };
+            
+            try {
+                const response = await fetch('/api/trades', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(tradeData)
+                });
+                
+                if (response.ok) {
+                    showNotification(`${side} trade placed successfully`, 'success');
+                    loadTrades();
+                } else {
+                    showNotification('Failed to place trade', 'error');
+                }
+                
+            } catch (error) {
+                console.error('Error placing trade:', error);
+                showNotification('Error placing trade', 'error');
+            }
+        }
+
+        // Create signal
+        async function createSignal() {
+            const signalData = {
+                symbol: document.getElementById('signal-symbol').value,
+                signal_type: document.getElementById('signal-type').value,
+                entry_price: parseFloat(document.getElementById('signal-entry-price').value),
+                stop_loss: parseFloat(document.getElementById('signal-stop-loss').value),
+                target: parseFloat(document.getElementById('signal-target').value)
+            };
+            
+            try {
+                const response = await fetch('/api/signals', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(signalData)
+                });
+                
+                if (response.ok) {
+                    showNotification('Signal created successfully', 'success');
+                    loadSignals();
+                    // Clear form
+                    document.getElementById('signal-form').reset();
+                } else {
+                    showNotification('Failed to create signal', 'error');
+                }
+                
+            } catch (error) {
+                console.error('Error creating signal:', error);
+                showNotification('Error creating signal', 'error');
+            }
+        }
+
+        // Load signals
+        async function loadSignals() {
+            try {
+                const response = await fetch('/api/signals?status=active');
+                const data = await response.json();
+                
+                const container = document.getElementById('signals-list');
+                container.innerHTML = '';
+                
+                if (data.signals.length === 0) {
+                    container.innerHTML = '<div style="text-align: center; color: #888;">No active signals</div>';
+                    return;
+                }
+                
+                data.signals.forEach(signal => {
+                    const div = document.createElement('div');
+                    div.className = `signal-item ${signal.signal_type.toLowerCase() === 'sell' ? 'signal-sell' : ''}`;
+                    
+                    div.innerHTML = `
+                        <div class="signal-header">
+                            <div class="signal-symbol">${signal.symbol}</div>
+                            <div class="signal-type signal-${signal.signal_type.toLowerCase()}">${signal.signal_type}</div>
+                        </div>
+                        <div class="signal-details">
+                            <div class="signal-detail">
+                                <div class="signal-label">Entry</div>
+                                <div class="signal-value">${signal.entry_price}</div>
+                            </div>
+                            <div class="signal-detail">
+                                <div class="signal-label">SL</div>
+                                <div class="signal-value">${signal.stop_loss}</div>
+                            </div>
+                            <div class="signal-detail">
+                                <div class="signal-label">Target</div>
+                                <div class="signal-value">${signal.target}</div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    container.appendChild(div);
+                });
+                
+            } catch (error) {
+                console.error('Error loading signals:', error);
+            }
+        }
+
+        // Load trades
+        async function loadTrades() {
+            try {
+                const response = await fetch('/api/trades');
+                const data = await response.json();
+                
+                const container = document.getElementById('trades-list');
+                container.innerHTML = '';
+                
+                if (data.trades.length === 0) {
+                    container.innerHTML = '<div style="text-align: center; color: #888;">No trades yet</div>';
+                    return;
+                }
+                
+                data.trades.forEach(trade => {
+                    const div = document.createElement('div');
+                    div.className = 'trade-item';
+                    
+                    const pnlClass = trade.pnl && trade.pnl > 0 ? 'price-positive' : 
+                                     trade.pnl && trade.pnl < 0 ? 'price-negative' : '';
+                    
+                    div.innerHTML = `
+                        <div class="trade-header">
+                            <div class="signal-symbol">${trade.symbol} - ${trade.side}</div>
+                            <div class="trade-status trade-${trade.status.toLowerCase()}">${trade.status}</div>
+                        </div>
+                        <div class="signal-details">
+                            <div class="signal-detail">
+                                <div class="signal-label">Entry</div>
+                                <div class="signal-value">${trade.entry_price}</div>
+                            </div>
+                            <div class="signal-detail">
+                                <div class="signal-label">Qty</div>
+                                <div class="signal-value">${trade.quantity}</div>
+                            </div>
+                            <div class="signal-detail">
+                                <div class="signal-label">P&L</div>
+                                <div class="signal-value ${pnlClass}">${trade.pnl ? trade.pnl.toFixed(2) : '-'}</div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    container.appendChild(div);
+                });
+                
+            } catch (error) {
+                console.error('Error loading trades:', error);
+            }
+        }
+
+        // Export trades to CSV
+        async function exportTrades() {
+            try {
+                window.open('/api/export/trades', '_blank');
+                showNotification('Export started', 'success');
+            } catch (error) {
+                console.error('Error exporting trades:', error);
+                showNotification('Export failed', 'error');
+            }
+        }
+
+        // Switch tabs
+        function switchTab(tab) {
+            currentTab = tab;
+            
+            // Update tab buttons
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // Update tab content
+            document.getElementById('nifty-watchlist').classList.toggle('active', tab === 'nifty');
+            document.getElementById('commodities-watchlist').classList.toggle('active', tab === 'commodities');
+        }
+
+        function switchRightTab(tab) {
+            rightTab = tab;
+            
+            // Update tab buttons
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // Update tab content
+            document.getElementById('signals-panel').classList.toggle('active', tab === 'signals');
+            document.getElementById('trades-panel').classList.toggle('active', tab === 'trades');
+        }
+
+        // Show notification
+        function showNotification(message, type) {
+            // Simple notification - you can enhance this
+            console.log(`${type.toUpperCase()}: ${message}`);
+        }
+
+        // Update watchlist periodically
+        function updateWatchlist() {
+            loadWatchlist();
+        }
+    </script>
+</body>
+</html>

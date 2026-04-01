@@ -1,0 +1,1195 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mini-Simon Indian Markets Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet" />
+    <!-- Lightweight Charts for TradingView-style candlestick rendering -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+
+<body>
+    <div class="app-shell">
+        <header class="top-bar">
+            <div class="logo-block">
+                <div class="logo-dot"></div>
+                <div>
+                    <div class="logo-title">Mini-Simon</div>
+                    <div class="logo-sub">Indian Market Algo Terminal</div>
+                </div>
+            </div>
+            <div class="top-bar-right">
+                <div class="mode-toggle">
+                    <span class="mode-label">Mode</span>
+                    <button id="modeLive" class="mode-btn">Live</button>
+                    <button id="modeSim" class="mode-btn">Paper</button>
+                </div>
+                <div class="chart-tabs">
+                    <button class="chart-tab chart-tab-active" type="button">Live Dashboard</button>
+                    <button id="analyticsBacktestingBtn" class="chart-tab" type="button">Analytics &amp;
+                        Backtesting</button>
+                </div>
+                <div class="status-chip" id="statusChip">
+                    <span class="status-dot"></span>
+                    <span id="statusText">Connecting...</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="terminal-main">
+            <!-- Top KPI row (similar to header metrics in the screenshot) -->
+            <section class="kpi-row">
+                <div class="kpi-card">
+                    <div class="kpi-label">Total P&L (INR)</div>
+                    <div class="kpi-value" id="kpiPnl">0.00</div>
+                    <div class="kpi-sub" id="kpiPnlSub">Realized + Unrealized</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Active Positions</div>
+                    <div class="kpi-value" id="kpiPositions">0</div>
+                    <div class="kpi-sub">Across all instruments</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Total Trades</div>
+                    <div class="kpi-value" id="kpiOrders">0</div>
+                    <div class="kpi-sub">All executed signals</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">Win Rate %</div>
+                    <div class="kpi-value" id="kpiWinRate">0%</div>
+                    <div class="kpi-sub" id="kpiWinRateSub">Profitable trades</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">W/L Ratio</div>
+                    <div class="kpi-value" id="kpiWLRatio">0.00</div>
+                    <div class="kpi-sub" id="kpiWLRatioSub">Avg Win / Avg Loss</div>
+                </div>
+            </section>
+
+            <!-- ── System Health Monitor ──────────────────────────────── -->
+            <section id="healthPanel" style="
+                display:flex; align-items:center; gap:18px;
+                background:rgba(15,23,42,0.7);
+                border:1px solid #1e2d45;
+                border-radius:8px;
+                padding:8px 16px;
+                margin-bottom:8px;
+                font-size:0.78rem;
+                flex-wrap:wrap;
+            ">
+                <span style="font-weight:600; color:#64748b; letter-spacing:.05em; text-transform:uppercase;">System
+                    Health</span>
+
+                <span class="health-item">
+                    <span class="health-dot" id="hDot"
+                        style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;margin-right:5px;"></span>
+                    <span id="hStatus" style="font-weight:600;">—</span>
+                </span>
+
+                <span class="health-item" style="color:#94a3b8;">
+                    🕐 <span style="color:#e2e8f0;">Last Tick:</span>
+                    <span id="hLastTick" style="color:#38bdf8; font-weight:600;">—</span>
+                    <span id="hTickAge" style="color:#64748b; font-size:0.72rem; margin-left:2px;"></span>
+                </span>
+
+                <span class="health-item" style="color:#94a3b8;">
+                    📊 <span style="color:#e2e8f0;">Ticks Today:</span>
+                    <span id="hTicksToday" style="color:#a78bfa; font-weight:600;">—</span>
+                </span>
+
+                <span class="health-item" style="color:#94a3b8;">
+                    📦 <span style="color:#e2e8f0;">Queue:</span>
+                    <span id="hQueue" style="font-weight:600;">—</span>
+                </span>
+
+                <span class="health-item" style="color:#94a3b8;">
+                    🏦 <span style="color:#e2e8f0;">Market:</span>
+                    <span id="hMarket" style="font-weight:600;">—</span>
+                </span>
+
+                <span id="hLastRefresh" style="margin-left:auto; color:#334155; font-size:0.7rem;"></span>
+            </section>
+
+            <!-- Main 3-column trading layout -->
+            <section class="terminal-grid"
+                style="display: grid; grid-template-columns: 0.18fr 0.82fr; gap: 12px; align-items: stretch;">
+                <!-- Left: Watchlists (equities + commodities) -->
+                <div class="terminal-col terminal-col-left">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div class="panel-title">
+                                <span class="panel-icon">📈</span>
+                                Watchlist
+                            </div>
+                            <div class="panel-meta" id="marketLastUpdate">--</div>
+                        </div>
+                        <div class="panel-body">
+                            <div class="table-wrapper watchlist-table-wrapper">
+                                <table class="data-table watchlist-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Symbol</th>
+                                            <th>LTP</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="marketBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panel" style="margin-top: 8px;">
+                        <div class="panel-header">
+                            <div class="panel-title">
+                                <span class="panel-icon">⛏️</span>
+                                Commodities
+                            </div>
+                            <div class="panel-meta" id="commodityLastUpdate">--</div>
+                        </div>
+                        <div class="panel-body">
+                            <div class="table-wrapper watchlist-table-wrapper">
+                                <table class="data-table watchlist-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Symbol</th>
+                                            <th>LTP</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="commodityBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Center: Chart area + signal panel + trade log history -->
+                <div class="terminal-col terminal-col-center">
+                    <div class="panel chart-panel">
+                        <div class="panel-header chart-header">
+                            <div class="panel-title">
+                                <span class="panel-icon">📊</span>
+                                Price Chart
+                                <span id="chartSymbolLabel" class="chart-symbol-label"></span>
+                            </div>
+                            <div class="chart-timeframe-group">
+                                <button type="button" class="chart-tab chart-timeframe-btn" data-tf="1m">1m</button>
+                                <button type="button" class="chart-tab chart-timeframe-btn chart-tab-active"
+                                    data-tf="5m">5m</button>
+                                <button type="button" class="chart-tab chart-timeframe-btn" data-tf="15m">15m</button>
+                            </div>
+                        </div>
+                        <div class="panel-body" style="padding: 0; height: 520px;">
+                            <div id="chartContainer" class="chart-container"></div>
+                        </div>
+                    </div>
+
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div class="panel-title">
+                                <span class="panel-icon">�</span>
+                                Signal Panel
+                            </div>
+                            <div class="panel-actions" style="display:flex; gap:8px; align-items:center;">
+                                <button type="button" id="exportSignalsCsv" class="mode-btn">Export CSV</button>
+                                <button type="button" id="exportSignalsJson" class="mode-btn">Export JSON</button>
+                            </div>
+                            <div class="panel-meta" id="signalsMeta">--</div>
+                        </div>
+                        <div class="panel-body">
+                            <div class="table-wrapper">
+                                <table class="data-table">
+                                    <thead id="signalsHead"></thead>
+                                    <tbody id="signalsBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panel">
+                        <div class="panel-header">
+                            <div class="panel-title">
+                                <span class="panel-icon">�</span>
+                                Trade Log History
+                            </div>
+                            <div class="panel-actions" style="display:flex; gap:8px; align-items:center;">
+                                <button type="button" id="exportTradesCsv" class="mode-btn">Export CSV</button>
+                                <button type="button" id="exportTradesJson" class="mode-btn">Export JSON</button>
+                            </div>
+                            <div class="panel-meta" id="ordersMeta">--</div>
+                        </div>
+                        <div class="panel-body">
+                            <div class="table-wrapper">
+                                <table class="data-table">
+                                    <thead id="ordersHead"></thead>
+                                    <tbody id="ordersBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <script>
+        const statusChip = document.getElementById('statusChip');
+        const statusText = document.getElementById('statusText');
+        const modeLiveBtn = document.getElementById('modeLive');
+        const modeSimBtn = document.getElementById('modeSim');
+        const chartContainer = document.getElementById('chartContainer');
+        const chartSymbolLabel = document.getElementById('chartSymbolLabel');
+
+        let selectedSymbol = null;
+        let selectedTimeframe = '5m';
+        let tvChart = null;
+        let tvSeries = null;
+        let marketInitialized = false;
+        let marketSocket = null;
+        let marketSocketConnected = false;
+        let lastPaperTradesVersion = 0;
+        let candleSocket = null;
+        let candlesRequestId = 0;
+        let activeCandleSymbol = null;
+        let activeCandleTimeframe = null;
+
+        async function fetchJSON(url, opts) {
+            try {
+                const res = await fetch(url, opts);
+                if (!res.ok) return null;
+                return await res.json();
+            } catch (e) {
+                console.error('Fetch error', url, e);
+                return null;
+            }
+        }
+
+        function downloadSignalsExport(format) {
+            const tf = (selectedTimeframe || '').toString();
+            const qs = new URLSearchParams();
+            qs.set('format', format);
+            if (tf) qs.set('timeframe', tf);
+            window.location.href = `/api/signals/export?${qs.toString()}`;
+        }
+
+        function downloadTradesExport(format) {
+            const qs = new URLSearchParams();
+            qs.set('format', format);
+            // Default to exporting all trades (matching what is visible in the Trade Log History panel)
+            // Users can still manually filter by symbol if we decide to add symbols UI later
+            window.location.href = `/api/trades/export?${qs.toString()}`;
+        }
+
+        const exportSignalsCsvBtn = document.getElementById('exportSignalsCsv');
+        if (exportSignalsCsvBtn) {
+            exportSignalsCsvBtn.addEventListener('click', () => downloadSignalsExport('csv'));
+        }
+        const exportSignalsJsonBtn = document.getElementById('exportSignalsJson');
+        if (exportSignalsJsonBtn) {
+            exportSignalsJsonBtn.addEventListener('click', () => downloadSignalsExport('json'));
+        }
+
+        const exportTradesCsvBtn = document.getElementById('exportTradesCsv');
+        if (exportTradesCsvBtn) {
+            exportTradesCsvBtn.addEventListener('click', () => downloadTradesExport('csv'));
+        }
+        const exportTradesJsonBtn = document.getElementById('exportTradesJson');
+        if (exportTradesJsonBtn) {
+            exportTradesJsonBtn.addEventListener('click', () => downloadTradesExport('json'));
+        }
+
+        const analyticsBtn = document.getElementById('analyticsBacktestingBtn');
+        if (analyticsBtn) {
+            analyticsBtn.addEventListener('click', () => {
+                window.location.href = '/backtesting';
+            });
+        }
+
+        function setModeButtons(mode) {
+            const live = mode === 'live';
+            modeLiveBtn.classList.toggle('mode-btn-active', live);
+            modeSimBtn.classList.toggle('mode-btn-active', !live);
+        }
+
+        async function loadMode() {
+            const data = await fetchJSON('/api/mode');
+            if (!data) return;
+            setModeButtons(data.mode);
+        }
+
+        async function changeMode(mode) {
+            const data = await fetchJSON('/api/mode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode })
+            });
+            if (data && data.mode) {
+                setModeButtons(data.mode);
+                refreshAll();
+            }
+        }
+
+        modeLiveBtn.addEventListener('click', () => changeMode('live'));
+        modeSimBtn.addEventListener('click', () => changeMode('paper'));
+
+        function setStatus(ok) {
+            statusChip.classList.toggle('status-ok', ok);
+            statusChip.classList.toggle('status-bad', !ok);
+            statusText.textContent = ok ? 'Online' : 'Error';
+        }
+
+        async function loadHealth() {
+            const data = await fetchJSON('/api/health');
+            setStatus(!!data && data.status === 'ok');
+        }
+
+        function formatPnL(value) {
+            const num = Number(value || 0);
+            const el = document.getElementById('kpiPnl');
+            el.textContent = num.toFixed(2);
+            el.classList.toggle('pnl-pos', num >= 0);
+            el.classList.toggle('pnl-neg', num < 0);
+        }
+
+        async function loadMarketFeed() {
+            const data = await fetchJSON('/api/market-feed');
+            if (!data) return;
+
+            const tbody = document.getElementById('marketBody');
+            if (!tbody) return;
+
+            const rows = data.rows || [];
+
+            if (!marketInitialized) {
+                tbody.innerHTML = '';
+
+                rows.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.dataset.symbol = row.symbol;
+                    const tdSymbol = document.createElement('td');
+                    tdSymbol.textContent = row.symbol;
+                    const tdLtp = document.createElement('td');
+                    tdLtp.textContent = Number(row.ltp || 0).toFixed(2);
+                    tr.appendChild(tdSymbol);
+                    tr.appendChild(tdLtp);
+                    tr.addEventListener('click', () => {
+                        selectedSymbol = row.symbol;
+                        highlightWatchlistSelection();
+                        loadCandles(row.symbol);
+                    });
+                    tbody.appendChild(tr);
+                });
+
+                marketInitialized = true;
+            } else {
+                const existing = {};
+                Array.from(tbody.querySelectorAll('tr[data-symbol]')).forEach(tr => {
+                    const sym = tr.getAttribute('data-symbol');
+                    if (sym) existing[sym] = tr;
+                });
+
+                rows.forEach(row => {
+                    let tr = existing[row.symbol];
+                    if (!tr) {
+                        tr = document.createElement('tr');
+                        tr.dataset.symbol = row.symbol;
+                        const tdSymbol = document.createElement('td');
+                        const tdLtp = document.createElement('td');
+                        tr.appendChild(tdSymbol);
+                        tr.appendChild(tdLtp);
+                        tr.addEventListener('click', () => {
+                            selectedSymbol = row.symbol;
+                            highlightWatchlistSelection();
+                            loadCandles(row.symbol);
+                        });
+                        tbody.appendChild(tr);
+                    }
+
+                    const cells = tr.querySelectorAll('td');
+                    if (cells[0]) {
+                        cells[0].textContent = row.symbol;
+                    }
+                    if (cells[1]) {
+                        cells[1].textContent = Number(row.ltp || 0).toFixed(2);
+                    }
+                });
+            }
+
+            document.getElementById('marketLastUpdate').textContent =
+                `Mode: ${data.mode} • Rows: ${rows.length}`;
+
+            if (!selectedSymbol && rows.length) {
+                selectedSymbol = rows[0].symbol;
+                highlightWatchlistSelection();
+                loadCandles(selectedSymbol);
+            } else {
+                highlightWatchlistSelection();
+            }
+        }
+
+        async function loadCommodityFeed() {
+            const data = await fetchJSON('/api/market-feed-commodities');
+            if (!data) return;
+
+            const tbody = document.getElementById('commodityBody');
+            if (!tbody) return;
+
+            const rows = data.rows || [];
+
+            // For the typically small commodities list, a full rebuild is
+            // simple and avoids extra bookkeeping.
+            tbody.innerHTML = '';
+            rows.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.dataset.symbol = row.symbol;
+                const tdSymbol = document.createElement('td');
+                tdSymbol.textContent = row.symbol;
+                const tdLtp = document.createElement('td');
+                tdLtp.textContent = Number(row.ltp || 0).toFixed(2);
+                tr.appendChild(tdSymbol);
+                tr.appendChild(tdLtp);
+                tr.addEventListener('click', () => {
+                    selectedSymbol = row.symbol;
+                    highlightWatchlistSelection();
+                    loadCandles(row.symbol);
+                });
+                tbody.appendChild(tr);
+            });
+
+            const meta = document.getElementById('commodityLastUpdate');
+            if (meta) {
+                meta.textContent = `Mode: ${data.mode} • Rows: ${rows.length}`;
+            }
+
+            // Ensure the selected row is visually consistent if the
+            // selection was previously on a commodity symbol.
+            highlightWatchlistSelection();
+        }
+
+        function applyMarketRows(rows) {
+            const tbody = document.getElementById('marketBody');
+            if (!tbody) return;
+
+            if (!marketInitialized) {
+                tbody.innerHTML = '';
+
+                rows.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.dataset.symbol = row.symbol;
+                    const tdSymbol = document.createElement('td');
+                    tdSymbol.textContent = row.symbol;
+                    const tdLtp = document.createElement('td');
+                    tdLtp.textContent = Number(row.ltp || 0).toFixed(2);
+                    tr.appendChild(tdSymbol);
+                    tr.appendChild(tdLtp);
+                    tr.addEventListener('click', () => {
+                        selectedSymbol = row.symbol;
+                        highlightWatchlistSelection();
+                        loadCandles(row.symbol);
+                    });
+                    tbody.appendChild(tr);
+                });
+
+                marketInitialized = true;
+            } else {
+                const existing = {};
+                Array.from(tbody.querySelectorAll('tr[data-symbol]')).forEach(tr => {
+                    const sym = tr.getAttribute('data-symbol');
+                    if (sym) existing[sym] = tr;
+                });
+
+                rows.forEach(row => {
+                    let tr = existing[row.symbol];
+                    if (!tr) {
+                        tr = document.createElement('tr');
+                        tr.dataset.symbol = row.symbol;
+                        const tdSymbol = document.createElement('td');
+                        const tdLtp = document.createElement('td');
+                        tr.appendChild(tdSymbol);
+                        tr.appendChild(tdLtp);
+                        tr.addEventListener('click', () => {
+                            selectedSymbol = row.symbol;
+                            highlightWatchlistSelection();
+                            loadCandles(row.symbol);
+                        });
+                        tbody.appendChild(tr);
+                    }
+
+                    const cells = tr.querySelectorAll('td');
+                    if (cells[0]) {
+                        cells[0].textContent = row.symbol;
+                    }
+                    if (cells[1]) {
+                        cells[1].textContent = Number(row.ltp || 0).toFixed(2);
+                    }
+                });
+            }
+        }
+
+        function initMarketWebSocket() {
+            try {
+                const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+                const wsUrl = `${proto}://${window.location.host}/ws/market-feed`;
+                marketSocket = new WebSocket(wsUrl);
+
+                marketSocket.onopen = () => {
+                    marketSocketConnected = true;
+                };
+
+                marketSocket.onclose = () => {
+                    marketSocketConnected = false;
+                    marketSocket = null;
+                };
+
+                marketSocket.onerror = () => {
+                    marketSocketConnected = false;
+                };
+
+                marketSocket.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        const rows = data.rows || [];
+                        applyMarketRows(rows);
+                        document.getElementById('marketLastUpdate').textContent =
+                            `Mode: ${data.mode} • Rows: ${rows.length} • WS`;
+                        const paperVersion = typeof data.paper_trades_version === 'number'
+                            ? data.paper_trades_version
+                            : null;
+                        if (paperVersion !== null && paperVersion !== lastPaperTradesVersion) {
+                            lastPaperTradesVersion = paperVersion;
+                            // Refresh trade log and paper P&L when paper trades change
+                            loadOrders();
+                            loadPaperStatus();
+                        }
+                        if (!selectedSymbol && rows.length) {
+                            selectedSymbol = rows[0].symbol;
+                            highlightWatchlistSelection();
+                        } else {
+                            highlightWatchlistSelection();
+                        }
+                    } catch (e) {
+                        console.error('WS message error', e);
+                    }
+                };
+            } catch (e) {
+                console.error('Error initialising market WebSocket', e);
+            }
+        }
+
+        async function loadPositions() {
+            const data = await fetchJSON('/api/positions');
+            if (!data) return;
+
+            const head = document.getElementById('positionsHead');
+            const body = document.getElementById('positionsBody');
+            const metaEl = document.getElementById('positionsMeta');
+            if (!head || !body || !metaEl) return;
+            head.innerHTML = '';
+            body.innerHTML = '';
+
+            const cols = ['symbol', 'qty', 'buy_value', 'sell_value', 'pnl'];
+            const trHead = document.createElement('tr');
+            cols.forEach(c => {
+                const th = document.createElement('th');
+                th.textContent = c.toUpperCase();
+                trHead.appendChild(th);
+            });
+            head.appendChild(trHead);
+
+            let totalPnl = 0;
+            (data.positions || []).forEach(p => {
+                const pnl = Number(p.pnl || 0);
+                totalPnl += pnl;
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${p.symbol || ''}</td>
+                    <td>${p.qty || 0}</td>
+                    <td>${p.buy_value || ''}</td>
+                    <td>${p.sell_value || ''}</td>
+                    <td class="${pnl >= 0 ? 'cell-pos' : 'cell-neg'}">${pnl.toFixed(2)}</td>
+                `;
+                body.appendChild(tr);
+            });
+            metaEl.textContent = `${(data.positions || []).length} open`;
+        }
+
+        async function loadOrders() {
+            const data = await fetchJSON('/api/paper/trades');
+            if (!data) return;
+
+            const head = document.getElementById('ordersHead');
+            const body = document.getElementById('ordersBody');
+            if (!head || !body) return;
+
+            head.innerHTML = '';
+            body.innerHTML = '';
+
+            const allTrades = Array.isArray(data.trades) ? data.trades : [];
+            const trades = allTrades.slice(0, 50);
+
+            const headers = [
+                'Sr. No',
+                'Symbol',
+                'Direction',
+                'Timeframe',
+                'Entry Price',
+                'Entry Time (IST)',
+                'Exit Price',
+                'Exit Time (IST)',
+                'Points',
+                'Brokerage',
+                'P&L (Excl. Brokerage)',
+                'Strategy',
+                'Reason',
+                'Outcome',
+            ];
+            const trHead = document.createElement('tr');
+            headers.forEach(label => {
+                const th = document.createElement('th');
+                th.textContent = label;
+                trHead.appendChild(th);
+            });
+            head.appendChild(trHead);
+
+            trades.forEach(t => {
+                const tr = document.createElement('tr');
+                const pnlPoints = Number(t['Points Captured'] || 0);
+                const pnlExclBrokerage = Number(t['P&L Excl. Brokerage'] || pnlPoints);
+                const brokerage = Number(t['Brokerage'] || 0);
+                const pnlClass = pnlExclBrokerage >= 0 ? 'cell-pos' : 'cell-neg';
+
+                tr.innerHTML = `
+                    <td>${t['Sr. No'] || ''}</td>
+                    <td>${t['Symbol'] || ''}</td>
+                    <td>${t['Direction'] || ''}</td>
+                    <td>${t['Timeframe'] || ''}</td>
+                    <td>${Number(t['Entry Price'] || 0).toFixed(2)}</td>
+                    <td>${t['Entry Time (IST)'] || ''}</td>
+                    <td>${t['Exit Price'] ? Number(t['Exit Price']).toFixed(2) : ''}</td>
+                    <td>${t['Exit Time (IST)'] || ''}</td>
+                    <td>${pnlPoints.toFixed(2)}</td>
+                    <td>${brokerage.toFixed(2)}</td>
+                    <td class="${pnlClass}">${pnlExclBrokerage.toFixed(2)}</td>
+                    <td>${t['Strategy'] || ''}</td>
+                    <td>${t['Reason'] || ''}</td>
+                    <td>${t['Outcome'] || ''}</td>
+                `;
+                body.appendChild(tr);
+            });
+
+            const totalTrades = allTrades.length;
+            let winningTrades = 0;
+            let losingTrades = 0;
+            let totalWinPoints = 0;
+            let totalLossPoints = 0;
+            let totalPnlFromTrades = 0;
+
+            allTrades.forEach(t => {
+                const p = Number(t['Points Captured'] || 0);
+                totalPnlFromTrades += p;
+                if (p > 0) {
+                    winningTrades++;
+                    totalWinPoints += p;
+                } else if (p < 0) {
+                    losingTrades++;
+                    totalLossPoints += Math.abs(p);
+                }
+            });
+
+            const winRate = totalTrades > 0 ? (winningTrades / totalTrades * 100).toFixed(1) : '0.0';
+            const avgWin = winningTrades > 0 ? totalWinPoints / winningTrades : 0;
+            const avgLoss = losingTrades > 0 ? totalLossPoints / losingTrades : 0;
+            const wlRatio = avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) : (avgWin > 0 ? '∞' : '0.00');
+
+            const kpiOrdersEl = document.getElementById('kpiOrders');
+            if (kpiOrdersEl) kpiOrdersEl.textContent = totalTrades;
+
+            const kpiWinRateEl = document.getElementById('kpiWinRate');
+            if (kpiWinRateEl) kpiWinRateEl.textContent = winRate + '%';
+
+            const kpiWLRatioEl = document.getElementById('kpiWLRatio');
+            if (kpiWLRatioEl) kpiWLRatioEl.textContent = wlRatio;
+
+            // Sync Total P&L KPI directly from trade log data immediately
+            // (loadPaperStatus will refine the exact figure with tax deductions)
+            const kpiPnlEl = document.getElementById('kpiPnl');
+            if (kpiPnlEl) {
+                const formatted = totalPnlFromTrades.toFixed(2);
+                kpiPnlEl.textContent = formatted;
+                kpiPnlEl.classList.remove('cell-pos', 'cell-neg');
+                if (totalTrades > 0) {
+                    kpiPnlEl.classList.add(totalPnlFromTrades >= 0 ? 'cell-pos' : 'cell-neg');
+                }
+            }
+
+            const metaEl = document.getElementById('ordersMeta');
+            if (metaEl) {
+                metaEl.textContent = `Paper trades: ${totalTrades}`;
+            }
+        }
+
+        async function loadSignals() {
+            const data = await fetchJSON('/api/signals');
+            if (!data) return;
+
+            const head = document.getElementById('signalsHead');
+            const body = document.getElementById('signalsBody');
+            if (!head || !body) return;
+
+            head.innerHTML = '';
+            body.innerHTML = '';
+
+            const allSignals = Array.isArray(data.signals) ? data.signals : [];
+
+            allSignals.sort((a, b) => {
+                // Sort by timestamp_generated (when signal was ACTUALLY created),
+                // not by signal_timestamp which can be a historical candle time.
+                const aTimeStr = (a.timestamp_generated || a.signal_timestamp || '').toString();
+                const bTimeStr = (b.timestamp_generated || b.signal_timestamp || '').toString();
+                const aTime = aTimeStr ? new Date(aTimeStr).getTime() : 0;
+                const bTime = bTimeStr ? new Date(bTimeStr).getTime() : 0;
+                return bTime - aTime;
+            });
+
+            const signals = allSignals.slice(0, 50);
+
+            const headers = [
+                'Signal ID (Sr. No.)',
+                'Generation Time (IST)',
+                'Symbol',
+                'Direction (Buy/Sell)',
+                'Timeframe',
+                'Entry Price',
+                'Stoploss',
+                'Target Price',
+                'Reason for Trade',
+            ];
+            const trHead = document.createElement('tr');
+            headers.forEach(label => {
+                const th = document.createElement('th');
+                th.textContent = label;
+                trHead.appendChild(th);
+            });
+            head.appendChild(trHead);
+
+            signals.forEach((s, idx) => {
+                const symbol = (s.display_symbol || s.instrument || s.symbol || '').toString();
+                const dir = (s.final_action || s.action || '').toString();
+                const tf = (s.signal_timeframe || s.timeframe || '').toString();
+
+                const entryVal = s.entry_price != null ? Number(s.entry_price) : null;
+                const slVal = s.stop_loss_level != null ? Number(s.stop_loss_level) : null;
+                const tgtVal = s.target_level != null ? Number(s.target_level) : null;
+
+                const entryStr = entryVal != null ? entryVal.toFixed(2) : '';
+                const slStr = slVal != null ? slVal.toFixed(2) : '';
+                const tgtStr = tgtVal != null ? tgtVal.toFixed(2) : '';
+                const reasonStr = s.strategy_name || s.reason || '';
+
+                // Show timestamp_generated (wall-clock creation time), not signal_timestamp
+                // which can be a historical candle date far in the past.
+                const genRaw = (s.timestamp_generated || s.signal_timestamp || '').toString();
+                let timeStr = '';
+                if (genRaw) {
+                    const dt = new Date(genRaw);
+                    if (!Number.isNaN(dt.getTime())) {
+                        try {
+                            timeStr = new Intl.DateTimeFormat('en-IN', {
+                                timeZone: 'Asia/Kolkata',
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                hour12: true,
+                            }).format(dt).replace(/\//g, '-');
+                        } catch (e) {
+                            timeStr = genRaw.split('.')[0];
+                        }
+                    } else {
+                        // Already a pre-formatted string (DD-MMM-YYYY hh:mm AM/PM)
+                        timeStr = genRaw;
+                    }
+                }
+
+                const tr = document.createElement('tr');
+                const dirClass = dir === 'BUY' ? 'style="color:#22c55e;font-weight:600"' : dir === 'SELL' ? 'style="color:#ef4444;font-weight:600"' : '';
+                tr.innerHTML = `
+                    <td>${idx + 1}</td>
+                    <td>${timeStr}</td>
+                    <td><strong>${symbol}</strong></td>
+                    <td ${dirClass}>${dir}</td>
+                    <td>${tf}</td>
+                    <td>${entryStr}</td>
+                    <td>${slStr}</td>
+                    <td>${tgtStr}</td>
+                    <td>${reasonStr}</td>
+                `;
+                body.appendChild(tr);
+            });
+
+            const metaEl = document.getElementById('signalsMeta');
+            if (metaEl) {
+                metaEl.textContent = `Signals: ${allSignals.length}`;
+            }
+        }
+
+        async function loadMargin() {
+            const data = await fetchJSON('/api/margin');
+            if (!data) return;
+
+            const grid = document.getElementById('marginGrid');
+            if (!grid) return;  // margin panel not shown in current layout
+            grid.innerHTML = '';
+
+            const margin = data.margin || {};
+            const total = Number(margin.total_balance || margin.total || 0);
+            const available = Number(margin.available_margin || margin.available || 0);
+            const used = Number(margin.utilized_margin || margin.used || 0);
+
+            const cards = [
+                { label: 'Total Balance', value: total },
+                { label: 'Available', value: available },
+                { label: 'Utilized', value: used },
+            ];
+
+            cards.forEach(c => {
+                const div = document.createElement('div');
+                div.className = 'margin-card';
+                div.innerHTML = `
+                    <div class="margin-label">${c.label}</div>
+                    <div class="margin-value">${c.value.toLocaleString('en-IN')}</div>
+                `;
+                grid.appendChild(div);
+            });
+
+            document.getElementById('kpiMargin').textContent = available.toLocaleString('en-IN');
+            document.getElementById('kpiMarginSub').textContent = `Total: ${total.toLocaleString('en-IN')}`;
+            const marginModeLabel = document.getElementById('marginModeLabel');
+            if (marginModeLabel) {
+                marginModeLabel.textContent = `Mode: ${data.mode}`;
+            }
+        }
+
+        async function loadPaperStatus() {
+            const data = await fetchJSON('/api/paper/metrics');
+            if (!data) return;
+
+            // ── Cumulative P&L ───────────────────────────────────────────────
+            const pnl = Number(data.Cumulative_PnL || 0);
+            const kpiPnlEl = document.getElementById('kpiPnl');
+            if (kpiPnlEl) {
+                kpiPnlEl.textContent = pnl.toFixed(2);
+                kpiPnlEl.classList.remove('cell-pos', 'cell-neg', 'pnl-pos', 'pnl-neg');
+                kpiPnlEl.classList.add(pnl >= 0 ? 'pnl-pos' : 'pnl-neg');
+            }
+            const pnlSubEl = document.getElementById('kpiPnlSub');
+            if (pnlSubEl) {
+                const session = data.Market_Session || 'CLOSED';
+                const sessionLabel = session === 'JOINT' ? '🟢 Equity + MCX'
+                    : session === 'MCX_ONLY' ? '🟡 MCX Only'
+                        : session === 'WEEKEND' ? '🔵 Weekend'
+                            : '🔴 Market Closed';
+                const wsLabel = data.WS_Live
+                    ? '⚡ WS LIVE'
+                    : `⚠️ WS OFFLINE (${data.WS_Tick_Age_S ?? '?'}s)`;
+                pnlSubEl.textContent = `${wsLabel} | ${sessionLabel}`;
+                pnlSubEl.style.color = data.WS_Live ? '#22c55e' : '#f97316';
+            }
+
+            // ── Active Positions ─────────────────────────────────────────────
+            const kpiPosEl = document.getElementById('kpiPositions');
+            if (kpiPosEl) kpiPosEl.textContent = data.Active_Positions || 0;
+
+            // ── Total Trades (closed) ────────────────────────────────────────
+            const kpiOrdersEl = document.getElementById('kpiOrders');
+            if (kpiOrdersEl) kpiOrdersEl.textContent = data.Total_Trades || 0;
+
+            // ── Win Rate ─────────────────────────────────────────────────────
+            const kpiWinRateEl = document.getElementById('kpiWinRate');
+            if (kpiWinRateEl) kpiWinRateEl.textContent = data.Win_Rate || '0%';
+
+            // ── Win / Loss Ratio ─────────────────────────────────────────────
+            const kpiWLRatioEl = document.getElementById('kpiWLRatio');
+            if (kpiWLRatioEl) kpiWLRatioEl.textContent = data.Win_Loss_Ratio || '0 / 0';
+            const kpiWLSubEl = document.getElementById('kpiWLRatioSub');
+            if (kpiWLSubEl) kpiWLSubEl.textContent = `Wins / Losses`;
+
+            // ── Market Session + WS badge in Health Panel ────────────────────
+            const mEl = document.getElementById('hMarket');
+            if (mEl) {
+                const session = data.Market_Session || 'CLOSED';
+                const isOpen = session !== 'CLOSED' && session !== 'WEEKEND';
+                const wsTag = data.WS_Live ? ' ⚡WS' : ' ⚠️WS?';
+                mEl.textContent = (session === 'JOINT' ? 'Open (All)'
+                    : session === 'MCX_ONLY' ? 'MCX Only'
+                        : session === 'WEEKEND' ? 'Weekend'
+                            : 'Closed') + wsTag;
+                mEl.style.color = data.WS_Live && isOpen ? '#22c55e'
+                    : !data.WS_Live ? '#f97316'
+                        : '#64748b';
+            }
+        }
+
+        function highlightWatchlistSelection() {
+            const eqBody = document.getElementById('marketBody');
+            const comBody = document.getElementById('commodityBody');
+
+            [eqBody, comBody].forEach(tbody => {
+                if (!tbody) return;
+                Array.from(tbody.querySelectorAll('tr')).forEach(tr => {
+                    const sym = tr.getAttribute('data-symbol');
+                    tr.classList.toggle('watchlist-row-active', sym === selectedSymbol);
+                });
+            });
+        }
+
+        function ensureChart() {
+            if (tvChart || !chartContainer || !window.LightweightCharts) {
+                return;
+            }
+
+            tvChart = LightweightCharts.createChart(chartContainer, {
+                layout: {
+                    backgroundColor: '#020617',
+                    textColor: '#9ca3af',
+                },
+                grid: {
+                    vertLines: { color: '#1f2937' },
+                    horzLines: { color: '#1f2937' },
+                },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                },
+                timeScale: {
+                    borderColor: '#1f2937',
+                },
+                rightPriceScale: {
+                    borderColor: '#1f2937',
+                },
+            });
+
+            tvSeries = tvChart.addCandlestickSeries({
+                upColor: '#22c55e',
+                downColor: '#ef4444',
+                borderDownColor: '#ef4444',
+                borderUpColor: '#22c55e',
+                wickDownColor: '#ef4444',
+                wickUpColor: '#22c55e',
+            });
+        }
+
+        async function loadCandles(symbol) {
+            if (!symbol) return;
+            const tf = selectedTimeframe || '5m';
+
+            const requestId = ++candlesRequestId;
+
+            const data = await fetchJSON(`/api/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(tf)}&count=300`);
+            if (requestId !== candlesRequestId) {
+                return;
+            }
+            if (!data || !data.candles) return;
+
+            ensureChart();
+            if (!tvSeries) return;
+
+            const seriesData = data.candles.map(c => ({
+                time: Math.floor(new Date(c.date).getTime() / 1000),
+                open: Number(c.open),
+                high: Number(c.high),
+                low: Number(c.low),
+                close: Number(c.close),
+            }));
+
+            tvSeries.setData(seriesData);
+            tvChart.timeScale().fitContent();
+
+            if (chartSymbolLabel) {
+                chartSymbolLabel.textContent = `${symbol} • ${tf}`;
+            }
+
+            activeCandleSymbol = symbol;
+            activeCandleTimeframe = tf;
+
+            // Restart candle WebSocket stream for this symbol/timeframe so
+            // subsequent ticks move only the last bar.
+            initCandleWebSocket(symbol, tf);
+        }
+
+        // Timeframe button handling
+        const tfButtons = document.querySelectorAll('.chart-timeframe-btn');
+        tfButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tf = btn.getAttribute('data-tf') || '5m';
+                selectedTimeframe = tf;
+                tfButtons.forEach(b => {
+                    b.classList.toggle('chart-tab-active', b === btn);
+                });
+                if (selectedSymbol) {
+                    loadCandles(selectedSymbol);
+                }
+            });
+        });
+
+        function initCandleWebSocket(symbol, timeframe) {
+            try {
+                if (symbol === activeCandleSymbol && timeframe === activeCandleTimeframe && candleSocket) {
+                    return;
+                }
+
+                if (candleSocket) {
+                    candleSocket.close();
+                    candleSocket = null;
+                }
+
+                const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+                const qs = `symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`;
+                const wsUrl = `${proto}://${window.location.host}/ws/candles?${qs}`;
+
+                candleSocket = new WebSocket(wsUrl);
+
+                candleSocket.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (!data.candle || !tvSeries) return;
+
+                        const c = data.candle;
+                        const bar = {
+                            time: Math.floor(new Date(c.date).getTime() / 1000),
+                            open: Number(c.open),
+                            high: Number(c.high),
+                            low: Number(c.low),
+                            close: Number(c.close),
+                        };
+
+                        // Update only the latest bar on the chart.
+                        tvSeries.update(bar);
+                    } catch (e) {
+                        console.error('Candle WS message error', e);
+                    }
+                };
+
+                candleSocket.onclose = () => {
+                    candleSocket = null;
+                };
+
+            } catch (e) {
+                console.error('Error initialising candle WebSocket', e);
+            }
+        }
+
+        async function loadHealthPanel() {
+            try {
+                const data = await fetchJSON('/api/health/feed');
+                if (!data) return;
+
+                const isOnline = data.connection_status === 'Online';
+                const dot = document.getElementById('hDot');
+                const statusEl = document.getElementById('hStatus');
+                if (dot) {
+                    dot.style.background = isOnline ? '#22c55e' : '#ef4444';
+                    // Pulse animation for online state
+                    dot.style.boxShadow = isOnline ? '0 0 6px #22c55e' : '0 0 6px #ef4444';
+                }
+                if (statusEl) {
+                    statusEl.textContent = data.connection_status;
+                    statusEl.style.color = isOnline ? '#22c55e' : '#ef4444';
+                }
+
+                // Last tick time
+                const lt = document.getElementById('hLastTick');
+                const lta = document.getElementById('hTickAge');
+                if (lt) {
+                    if (data.last_tick_at === 'never') {
+                        lt.textContent = 'Never';
+                        lt.style.color = '#ef4444';
+                    } else {
+                        // Show only HH:MM:SS from ISO timestamp
+                        const parts = data.last_tick_at.split('T');
+                        lt.textContent = parts.length > 1 ? parts[1].slice(0, 8) + ' IST' : data.last_tick_at;
+                        lt.style.color = '#38bdf8';
+                    }
+                }
+                if (lta) {
+                    const age = data.last_tick_age_seconds;
+                    if (age >= 0) {
+                        lta.textContent = `(${age}s ago)`;
+                        lta.style.color = age > 30 ? '#f97316' : '#64748b';
+                    } else {
+                        lta.textContent = '';
+                    }
+                }
+
+                // Ticks today
+                const tt = document.getElementById('hTicksToday');
+                if (tt) tt.textContent = (data.total_ticks_today || 0).toLocaleString();
+
+                // Queue depth
+                const qEl = document.getElementById('hQueue');
+                if (qEl) {
+                    const q = data.queue_depth || 0;
+                    qEl.textContent = q;
+                    qEl.style.color = q > 100 ? '#f97316' : '#22c55e';
+                }
+
+                // Market open
+                const mEl = document.getElementById('hMarket');
+                if (mEl) {
+                    mEl.textContent = data.market_open ? 'Open' : 'Closed';
+                    mEl.style.color = data.market_open ? '#22c55e' : '#64748b';
+                }
+
+                // Last refresh
+                const lrEl = document.getElementById('hLastRefresh');
+                if (lrEl) {
+                    const now = new Date();
+                    lrEl.textContent = `Updated ${now.toLocaleTimeString('en-IN', { hour12: false })}`;
+                }
+            } catch (e) {
+                console.error('loadHealthPanel error', e);
+            }
+        }
+
+        async function refreshAll() {
+            await Promise.all([
+                loadHealth(),
+                loadHealthPanel(),
+                loadMarketFeed(),
+                loadCommodityFeed(),
+                loadPositions(),
+                loadOrders(),
+                loadSignals(),
+                loadPaperStatus(),
+                loadMode(),
+            ]);
+
+            // After core data panels are refreshed, update the chart for the
+            // currently selected symbol using the combined historical + live
+            // candles served by /api/candles.
+            if (marketInitialized && selectedSymbol) {
+                await loadCandles(selectedSymbol);
+            }
+        }
+
+
+        // Initial load & polling
+        refreshAll();
+        initMarketWebSocket();
+        // Full refresh every 8 seconds
+        setInterval(refreshAll, 8000);
+        // Health panel on its own faster cycle (every 5s)
+        setInterval(loadHealthPanel, 5000);
+        // KPI metrics (PnL, Win Rate, Positions, Market Session) — fast 3s poll
+        setInterval(loadPaperStatus, 3000);
+
+    </script>
+</body>
+
+</html>
